@@ -1,54 +1,22 @@
 import numpy as np
 import pandas as pd
-
-
-# Asset classes used in every portfolio
-ASSET_CLASSES = [
-    "domestic_equity",
-    "international_equity",
-    "fixed_income",
-    "real_estate",
-    "commodities",
-    "cash",
-]
-
+from config.asset_classes import ASSET_CLASSES
+from config.risk_categories import RISK_CATEGORIES
+from config.settings import (
+    NUMBER_OF_PORTFOLIOS,
+    RANDOM_SEED,
+)
 
 # Portfolio templates for each investor risk profile.
 # - target: ideal asset allocation
 # - drift_band: expected deviation from the target due to market movement
 # - weight: probability of generating this type of portfolio
-RISK_CATEGORIES = {
-    "ultra_conservative": {
-        "target": [0.15, 0.00, 0.60, 0.00, 0.10, 0.15],
-        "drift_band": 0.02,
-        "weight": 0.10,
-    },
-    "conservative": {
-        "target": [0.25, 0.05, 0.45, 0.05, 0.12, 0.08],
-        "drift_band": 0.025,
-        "weight": 0.24,
-    },
-    "balanced": {
-        "target": [0.40, 0.10, 0.30, 0.05, 0.10, 0.05],
-        "drift_band": 0.03,
-        "weight": 0.36,
-    },
-    "aggressive": {
-        "target": [0.55, 0.15, 0.15, 0.05, 0.07, 0.03],
-        "drift_band": 0.04,
-        "weight": 0.20,
-    },
-    "ultra_aggressive": {
-        "target": [0.65, 0.20, 0.05, 0.03, 0.05, 0.02],
-        "drift_band": 0.05,
-        "weight": 0.10,
-    },
-}
+
 
 
 def generate_portfolios(
-    number_of_portfolios: int = 500,
-    seed: int = 42,
+    number_of_portfolios: int=  NUMBER_OF_PORTFOLIOS,
+    seed: int= RANDOM_SEED,
 ) -> pd.DataFrame:
     """
     Generate synthetic investment portfolios.
