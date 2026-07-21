@@ -132,3 +132,4 @@ def test_original_trade_list_is_not_modified(
     )
 
     assert list(trade_list.columns) == original_columns
+    

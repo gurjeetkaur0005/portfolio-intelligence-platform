@@ -1,42 +1,392 @@
-# Portfolio Intelligence Platform
-
-An AI-powered portfolio management platform that analyzes investment portfolios, monitors allocation drift, generates optimized rebalancing recommendations, explains investment decisions, and evaluates portfolio strategies through historical backtesting.
+# Agentic AI Autonomous Portfolio Rebalancing Platform
 
 ## Overview
 
-Managing an investment portfolio involves more than simply buying and holding assets. As markets change, portfolio allocations gradually drift away from their intended targets, altering the overall risk profile and potentially affecting long-term investment goals.
+The **Agentic AI Autonomous Portfolio Rebalancing Platform** is a production-style portfolio management system that automatically monitors investment portfolios, detects when rebalancing is required, optimizes trades, estimates transaction costs and taxes, and prepares the system for explainable AI and autonomous decision-making.
 
-This project explores how artificial intelligence can improve the portfolio management process by building an intelligent platform capable of:
+The goal of this project is to simulate how modern digital wealth management platforms such as Wealthfront, Betterment, and institutional portfolio management systems operate while following clean software engineering practices.
 
-* Monitoring portfolio drift across thousands of simulated client portfolios
-* Detecting threshold-based, calendar-based, and event-driven rebalancing opportunities
-* Generating constraint-aware and tax-efficient trade recommendations
-* Producing clear explanations for investors, financial advisors, and compliance teams
-* Supporting human review with a complete audit trail
-* Evaluating portfolio performance through historical backtesting and scenario analysis
+---
 
-The platform follows a modular architecture, allowing each component to be developed, tested, and extended independently while reflecting the design principles used in modern financial software systems.
+# Project Goals
 
-## Core Modules
+* Monitor thousands of investment portfolios.
+* Detect portfolio drift from target allocation.
+* Trigger rebalancing using multiple trigger types.
+* Generate optimized buy/sell trades.
+* Minimize unnecessary turnover.
+* Estimate transaction costs.
+* Estimate tax impact before execution.
+* Produce explainable and auditable investment decisions.
+* Serve as a production-quality portfolio for interviews and resume projects.
 
-* **Data Generation:** Simulate portfolios, market data, and investor profiles.
-* **Portfolio Monitoring:** Measure allocation drift and monitor portfolio health.
-* **Trigger Engine:** Detect threshold, calendar, and event-driven rebalancing opportunities.
-* **Portfolio Optimization:** Generate optimized trade recommendations while respecting real-world constraints.
-* **Multi-Agent AI:** Coordinate specialized AI agents for portfolio analysis, risk assessment, tax optimization, compliance, and decision-making.
-* **Explainable AI:** Generate transparent, audience-specific explanations for every recommendation.
-* **Human Override & Audit:** Support manual intervention with a complete decision history.
-* **Backtesting Framework:** Evaluate portfolio strategies using historical market scenarios.
-* **Interactive Dashboard:** Visualize portfolio analytics, recommendations, and system performance.
+---
 
-## Technology Stack
+# Technology Stack
 
-Python • NumPy • Pandas • CVXPY • LangChain • CrewAI • SHAP • LIME • Streamlit • Pytest
+* Python
+* Pandas
+* NumPy
+* CVXPY
+* Pytest
+* Git & GitHub
 
-## Project Status
+Future additions:
 
-🚧 **In Development**
+* FastAPI
+* PostgreSQL
+* Docker
+* Redis
+* CrewAI / LangChain
+* AWS
 
-**Current Phase:** Project Setup & Data Architecture
+---
 
-The current focus is on building the project's foundation by creating realistic synthetic portfolio data, establishing the core architecture, and implementing the components that will power portfolio monitoring and intelligent rebalancing.
+# Project Structure
+
+```text
+portfolio-intelligence-platform/
+│
+├── config/
+│   ├── asset_classes.py
+│   ├── risk_categories.py
+│   └── settings.py
+│
+├── src/
+│   ├── data/
+│   ├── monitoring/
+│   ├── triggers/
+│   ├── optimization/
+│   ├── explanations/
+│   ├── execution/
+│   └── agents/
+│
+├── tests/
+│
+├── notebooks/
+│
+└── docs/
+```
+
+---
+
+# System Architecture
+
+```text
+Client Profiles
+        │
+        ▼
+Portfolio Generator
+        │
+        ▼
+Market Data Simulator
+        │
+        ▼
+Drift Calculator
+        │
+        ▼
+Threshold Trigger
+Calendar Trigger
+Event Trigger
+        │
+        ▼
+Trigger Consolidator
+        │
+        ▼
+Portfolio Optimizer (CVXPY)
+        │
+        ▼
+Trade List Generator
+        │
+        ▼
+Transaction Cost Estimator
+        │
+        ▼
+Tax-Aware Optimizer
+        │
+        ▼
+Explainability Engine (Upcoming)
+```
+
+---
+
+# Completed Modules
+
+## 1. Configuration
+
+Configured:
+
+* Asset classes
+* Investor risk categories
+* Global project settings
+* Random seed
+* Portfolio generation parameters
+
+---
+
+## 2. Data Generation
+
+### Client Profile Generator
+
+Generates synthetic client information including:
+
+* Portfolio ID
+* Risk category
+* Investment horizon
+* Tax bracket
+* Manual approval requirement
+
+### Portfolio Generator
+
+Generates diversified investment portfolios.
+
+Features:
+
+* Target asset allocation
+* Current asset allocation
+* Simulated market drift
+* Multiple investor risk profiles
+
+### Market Data Simulator
+
+Creates synthetic market returns for:
+
+* Domestic equity
+* International equity
+* Fixed income
+* Real estate
+* Commodities
+* Cash
+
+---
+
+## 3. Portfolio Monitoring
+
+### Drift Calculator
+
+Measures portfolio deviation from target allocation.
+
+Calculates:
+
+* Asset-level drift
+* Maximum absolute drift
+* Sum of absolute drift
+* RMS drift
+
+Determines whether rebalancing is required.
+
+---
+
+## 4. Trigger Engine
+
+### Threshold Trigger
+
+Detects portfolios exceeding allowable drift.
+
+Severity levels:
+
+* None
+* Medium
+* High
+* Critical
+
+---
+
+### Calendar Trigger
+
+Supports:
+
+* Monthly review
+* Quarterly review
+* Annual review
+
+---
+
+### Event Trigger
+
+Supports:
+
+* Market crash
+* Regulatory change
+* Client life event
+* Corporate action
+* Large cash flow
+* Tax harvesting window
+
+---
+
+### Trigger Consolidator
+
+Combines:
+
+* Threshold triggers
+* Calendar triggers
+* Event triggers
+
+Produces:
+
+* Final trigger
+* Final priority
+* Contributing trigger list
+
+---
+
+## 5. Portfolio Optimization
+
+### Portfolio Optimizer
+
+Built using CVXPY.
+
+Features:
+
+* Target allocation optimization
+* Turnover constraints
+* Trade weight generation
+* Optimization under portfolio constraints
+
+---
+
+### Trade List Generator
+
+Converts optimized weights into executable trades.
+
+Produces:
+
+* Buy trades
+* Sell trades
+* Trade values
+* Asset-level recommendations
+
+---
+
+### Transaction Cost Estimator
+
+Estimates execution costs for every trade.
+
+Calculates:
+
+* Transaction cost per trade
+* Portfolio transaction cost
+
+---
+
+### Tax-Aware Optimizer
+
+Estimates tax impact before executing trades.
+
+Calculates:
+
+* Unrealized gain
+* Sell value
+* Sell fraction
+* Estimated realized gain
+* Estimated tax liability
+* After-tax trade value
+* Portfolio-level estimated tax
+* Tax liability indicator
+
+Validation includes:
+
+* Required columns
+* Missing values
+* Invalid tax rates
+* Invalid holdings
+* Excessive sell orders
+
+---
+
+# Testing
+
+The project uses **Pytest** for unit testing.
+
+Current coverage includes:
+
+* Portfolio optimization
+* Trade list generation
+* Transaction cost estimation
+* Tax-aware optimization
+
+Tests validate:
+
+* Correct calculations
+* Validation logic
+* Edge cases
+* Error handling
+
+Run all tests:
+
+```bash
+python3 -m pytest -v
+```
+
+Run a single test file:
+
+```bash
+python3 -m pytest tests/test_tax_aware_optimizer.py -v
+```
+
+---
+
+# Current Workflow
+
+1. Generate synthetic clients.
+2. Generate portfolios.
+3. Simulate market movement.
+4. Calculate portfolio drift.
+5. Evaluate threshold, calendar, and event triggers.
+6. Consolidate trigger decisions.
+7. Optimize portfolio allocations.
+8. Generate executable trades.
+9. Estimate transaction costs.
+10. Estimate tax impact.
+
+---
+
+# Upcoming Modules
+
+The next development stages include:
+
+* Explainability Engine
+* Human Approval / Override Engine
+* Audit Trail
+* Agentic AI Layer
+* FastAPI Service
+* PostgreSQL Integration
+* Background Scheduling
+* Dashboard
+* Historical Backtesting
+* Cloud Deployment
+
+---
+
+# Future Enhancements
+
+* Autonomous multi-agent workflow
+* Real-time market data integration
+* Tax-loss harvesting strategies
+* Portfolio performance analytics
+* Compliance reporting
+* Advisor dashboard
+* Client-facing recommendation reports
+
+---
+
+# Learning Outcomes
+
+This project demonstrates practical experience in:
+
+* Portfolio optimization
+* Financial engineering fundamentals
+* Data processing with Pandas
+* Convex optimization using CVXPY
+* Production-quality Python development
+* Software architecture
+* Unit testing with Pytest
+* Clean code and modular design
+* Building AI-ready financial systems
+
+---
+
+# License
+
+This project is intended for educational, research, and portfolio demonstration purposes.

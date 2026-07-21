@@ -95,7 +95,7 @@ def _validate_tax_inputs(
         )
     if (trade_list["current_value"] <= 0).any():
         raise ValueError(
-            "Current value must be greater than or equal to zero."
+            "Current value must be greater than zero."
         )
     if (trade_list["cost_basis"] < 0).any():
         raise ValueError(
