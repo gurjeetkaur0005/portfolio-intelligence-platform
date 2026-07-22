@@ -1,13 +1,18 @@
 from __future__ import annotations
+
 import pandas as pd
+
+
 REQUIRED_COLUMNS = {
     "portfolio_id",
-    "asset_class",
+    "asset",
     "trade_value",
     "current_value",
     "cost_basis",
     "tax_rate",
 }
+
+
 def estimate_trade_taxes(
     trade_list: pd.DataFrame,
 ) -> pd.DataFrame:
@@ -28,7 +33,6 @@ def estimate_trade_taxes(
         Trade list with additional tax-estimation columns.
     """
 
-    
     missing_columns = REQUIRED_COLUMNS - set(trade_list.columns)
 
     if missing_columns:
@@ -39,9 +43,9 @@ def estimate_trade_taxes(
     result = trade_list.copy()
     _validate_tax_inputs(result)
     result["unrealized_gain"] = (
-            result["current_value"]
-            - result["cost_basis"]
-        )
+        result["current_value"]
+        - result["cost_basis"]
+    )
     result["sell_value"] = (
         -result["trade_value"].clip(upper=0.0)
     )
@@ -72,8 +76,8 @@ def estimate_trade_taxes(
         ].transform("sum")
     )
 
-
     return result
+
 
 def _validate_tax_inputs(
     trade_list: pd.DataFrame,
