@@ -227,3 +227,41 @@ def test_negative_cost_basis_raises_error() -> None:
         match="Cost basis must be greater than or equal to zero",
     ):
         estimate_trade_taxes(trade_list)
+
+
+def test_invalid_numeric_string_raises_error() -> None:
+    trade_list = pd.DataFrame(
+        {
+            "portfolio_id": ["P001"],
+            "asset": ["equity"],
+            "trade_value": ["not-a-number"],
+            "current_value": [100000],
+            "cost_basis": [80000],
+            "tax_rate": [0.20],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Tax estimation inputs must be valid numbers",
+    ):
+        estimate_trade_taxes(trade_list)
+
+
+def test_infinite_numeric_value_raises_error() -> None:
+    trade_list = pd.DataFrame(
+        {
+            "portfolio_id": ["P001"],
+            "asset": ["equity"],
+            "trade_value": [-20000],
+            "current_value": [float("inf")],
+            "cost_basis": [80000],
+            "tax_rate": [0.20],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Tax estimation inputs must be finite values",
+    ):
+        estimate_trade_taxes(trade_list)

@@ -170,6 +170,41 @@ def test_negative_transaction_cost_rate_raises_value_error(
         )
 
 
+def test_invalid_trade_weight_string_raises_value_error(
+    trade_list: pd.DataFrame,
+) -> None:
+    invalid_trade_list = trade_list.copy()
+    invalid_trade_list["trade_weight"] = invalid_trade_list[
+        "trade_weight"
+    ].astype(object)
+    invalid_trade_list.loc[0, "trade_weight"] = "not-a-number"
+
+    with pytest.raises(
+        ValueError,
+        match="Trade weights must be valid numbers",
+    ):
+        estimate_transaction_costs(
+            trade_list=invalid_trade_list,
+            portfolio_value=1_000_000,
+        )
+
+
+def test_infinite_trade_weight_raises_value_error(
+    trade_list: pd.DataFrame,
+) -> None:
+    invalid_trade_list = trade_list.copy()
+    invalid_trade_list.loc[0, "trade_weight"] = float("inf")
+
+    with pytest.raises(
+        ValueError,
+        match="Trade weights must be finite numeric values",
+    ):
+        estimate_transaction_costs(
+            trade_list=invalid_trade_list,
+            portfolio_value=1_000_000,
+        )
+
+
 def test_original_trade_list_is_not_modified(
     trade_list: pd.DataFrame,
 ) -> None:

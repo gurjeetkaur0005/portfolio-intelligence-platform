@@ -1,0 +1,5 @@
+cvxpy==1.9.2
+numpy==2.5.1
+pandas==3.0.3
+pytest==8.4.2
+ruff==0.15.9

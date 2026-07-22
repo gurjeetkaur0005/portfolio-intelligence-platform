@@ -1,0 +1,2 @@
+"""DataFrame schema constants."""
+

@@ -2,84 +2,85 @@
 
 ## Overview
 
-The **Agentic AI Autonomous Portfolio Rebalancing Platform** is a production-style portfolio management system that automatically monitors investment portfolios, detects when rebalancing is required, optimizes trades, estimates transaction costs and taxes, and prepares the system for explainable AI and autonomous decision-making.
+The **Agentic AI Autonomous Portfolio Rebalancing Platform** is a
+production-style portfolio management project that monitors synthetic
+investment portfolios, detects rebalancing triggers, optimizes trades,
+estimates transaction costs and taxes, enriches trade records, and generates
+client, advisor, and compliance explanations.
 
-The goal of this project is to simulate how modern digital wealth management platforms such as Wealthfront, Betterment, and institutional portfolio management systems operate while following clean software engineering practices.
+The project is intentionally modular so later phases can add human approval,
+audit trails, agents, APIs, dashboards, databases, and deployment automation
+without rewriting the core rebalancing logic.
 
----
+## Project Goals
 
-# Project Goals
-
-* Monitor thousands of investment portfolios.
+* Generate synthetic client profiles and portfolio allocations.
 * Detect portfolio drift from target allocation.
-* Trigger rebalancing using multiple trigger types.
-* Generate optimized buy/sell trades.
-* Minimize unnecessary turnover.
-* Estimate transaction costs.
-* Estimate tax impact before execution.
-* Produce explainable and auditable investment decisions.
-* Serve as a production-quality portfolio for interviews and resume projects.
+* Evaluate threshold, calendar, and event rebalancing triggers.
+* Consolidate trigger decisions by priority.
+* Generate optimized buy, sell, and hold recommendations.
+* Preserve signed trade conventions across execution, tax, and explanation
+  modules.
+* Estimate transaction costs and tax impact before execution.
+* Produce clear explanations for clients, advisors, and compliance review.
 
----
-
-# Technology Stack
+## Technology Stack
 
 * Python
 * Pandas
 * NumPy
 * CVXPY
 * Pytest
-* Git & GitHub
+* Ruff
 
 Future additions:
 
+* Human Approval Engine
+* Audit Trail
+* Tax Lot Manager
+* CrewAI agents
 * FastAPI
 * PostgreSQL
-* Docker
-* Redis
-* CrewAI / LangChain
-* AWS
+* Streamlit dashboard
+* Backtesting
+* AWS deployment
 
----
-
-# Project Structure
+## Project Structure
 
 ```text
 portfolio-intelligence-platform/
-│
 ├── config/
 │   ├── asset_classes.py
 │   ├── risk_categories.py
 │   └── settings.py
-│
 ├── src/
 │   ├── data/
 │   ├── monitoring/
 │   ├── triggers/
 │   ├── optimization/
-│   ├── explanations/
 │   ├── execution/
-│   └── agents/
-│
+│   ├── explanations/
+│   ├── pipeline/
+│   ├── schemas/
+│   ├── agents/
+│   ├── backtesting/
+│   ├── dashboard/
+│   ├── override/
+│   └── utils/
 ├── tests/
-│
-├── notebooks/
-│
-└── docs/
+├── requirements.txt
+└── README.md
 ```
 
----
+## Rebalance Pipeline
 
-# System Architecture
+The implemented orchestration layer is in `src/pipeline/rebalance_pipeline.py`.
 
 ```text
-Client Profiles
+Client Profile Generator
         │
         ▼
 Portfolio Generator
-        │
-        ▼
-Market Data Simulator
         │
         ▼
 Drift Calculator
@@ -102,291 +103,96 @@ Trade List Generator
 Transaction Cost Estimator
         │
         ▼
+Trade Enrichment
+        │
+        ▼
 Tax-Aware Optimizer
         │
         ▼
-Explainability Engine (Upcoming)
+Explanation Generator
 ```
 
----
+`src/data/market_data_simulator.py` is currently a standalone synthetic market
+data utility. It is not part of the active rebalance pipeline yet.
 
-# Completed Modules
+## Trade Conventions
 
-## 1. Configuration
+The project uses one signed trade model:
 
-Configured:
+* `BUY`: `trade_weight > 0` and `trade_value > 0`
+* `SELL`: `trade_weight < 0` and `trade_value < 0`
+* `HOLD`: `trade_weight == 0` and `trade_value == 0`
+* `transaction_cost` is always non-negative
+* tax is estimated only from realized gains on sell trades
 
-* Asset classes
-* Investor risk categories
-* Global project settings
-* Random seed
-* Portfolio generation parameters
+The canonical trade DataFrame schema is documented in
+`src/schemas/trade_schema.py`.
 
----
+## Completed Modules
 
-## 2. Data Generation
+### Configuration
 
-### Client Profile Generator
+Defines asset classes, risk categories, global settings, and reproducible
+random seeds.
 
-Generates synthetic client information including:
+### Data Generation
 
-* Portfolio ID
-* Risk category
-* Investment horizon
-* Tax bracket
-* Manual approval requirement
+* `client_profile_generator.py` creates synthetic client profiles.
+* `portfolio_generator.py` creates target and current allocations.
+* `market_data_simulator.py` creates standalone synthetic market price data.
 
-### Portfolio Generator
+### Monitoring
 
-Generates diversified investment portfolios.
+`drift_calculator.py` adds asset-level drift, maximum absolute drift, sum of
+absolute drift, RMS drift, and rebalancing flags.
 
-Features:
+### Trigger Engine
 
-* Target asset allocation
-* Current asset allocation
-* Simulated market drift
-* Multiple investor risk profiles
+* `threshold_trigger.py` classifies drift breaches as `none`, `medium`,
+  `high`, or `critical`.
+* `calendar_trigger.py` detects monthly, quarterly, and annual reviews.
+* `event_trigger.py` detects supported market, regulatory, client, corporate,
+  cash-flow, and tax-harvesting events.
+* `trigger_consolidator.py` combines trigger signals and chooses the final
+  priority.
 
-### Market Data Simulator
+### Optimization
 
-Creates synthetic market returns for:
+`portfolio_optimizer.py` uses CVXPY to minimize tracking error subject to
+cash-neutral trades, non-negative post-trade weights, and a turnover budget.
 
-* Domestic equity
-* International equity
-* Fixed income
-* Real estate
-* Commodities
-* Cash
+### Execution
 
----
+* `trade_list_generator.py` turns optimized weights into asset-level BUY,
+  SELL, and HOLD rows.
+* `transaction_cost_estimator.py` calculates signed trade values and
+  non-negative transaction costs.
 
-## 3. Portfolio Monitoring
+### Pipeline
 
-### Drift Calculator
+* `trade_enrichment.py` adds `portfolio_id`, `current_value`, `cost_basis`,
+  and `tax_rate` for tax estimation.
+* `rebalance_pipeline.py` orchestrates the full workflow.
 
-Measures portfolio deviation from target allocation.
+### Tax And Explanations
 
-Calculates:
+* `tax_aware_optimizer.py` estimates realized gains and tax liability for
+  sell trades.
+* `explanation_generator.py` creates distinct client, advisor, and compliance
+  explanations with threshold context.
 
-* Asset-level drift
-* Maximum absolute drift
-* Sum of absolute drift
-* RMS drift
+## Validation
 
-Determines whether rebalancing is required.
+Install dependencies:
 
----
+```bash
+python3 -m pip install -r requirements.txt
+```
 
-## 4. Trigger Engine
-
-### Threshold Trigger
-
-Detects portfolios exceeding allowable drift.
-
-Severity levels:
-
-* None
-* Medium
-* High
-* Critical
-
----
-
-### Calendar Trigger
-
-Supports:
-
-* Monthly review
-* Quarterly review
-* Annual review
-
----
-
-### Event Trigger
-
-Supports:
-
-* Market crash
-* Regulatory change
-* Client life event
-* Corporate action
-* Large cash flow
-* Tax harvesting window
-
----
-
-### Trigger Consolidator
-
-Combines:
-
-* Threshold triggers
-* Calendar triggers
-* Event triggers
-
-Produces:
-
-* Final trigger
-* Final priority
-* Contributing trigger list
-
----
-
-## 5. Portfolio Optimization
-
-### Portfolio Optimizer
-
-Built using CVXPY.
-
-Features:
-
-* Target allocation optimization
-* Turnover constraints
-* Trade weight generation
-* Optimization under portfolio constraints
-
----
-
-### Trade List Generator
-
-Converts optimized weights into executable trades.
-
-Produces:
-
-* Buy trades
-* Sell trades
-* Trade values
-* Asset-level recommendations
-
----
-
-### Transaction Cost Estimator
-
-Estimates execution costs for every trade.
-
-Calculates:
-
-* Transaction cost per trade
-* Portfolio transaction cost
-
----
-
-### Tax-Aware Optimizer
-
-Estimates tax impact before executing trades.
-
-Calculates:
-
-* Unrealized gain
-* Sell value
-* Sell fraction
-* Estimated realized gain
-* Estimated tax liability
-* After-tax trade value
-* Portfolio-level estimated tax
-* Tax liability indicator
-
-Validation includes:
-
-* Required columns
-* Missing values
-* Invalid tax rates
-* Invalid holdings
-* Excessive sell orders
-
----
-
-# Testing
-
-The project uses **Pytest** for unit testing.
-
-Current coverage includes:
-
-* Portfolio optimization
-* Trade list generation
-* Transaction cost estimation
-* Tax-aware optimization
-
-Tests validate:
-
-* Correct calculations
-* Validation logic
-* Edge cases
-* Error handling
-
-Run all tests:
+Run tests, compilation, and lint checks:
 
 ```bash
 python3 -m pytest -v
+python3 -m compileall src config tests
+python3 -m ruff check .
 ```
-
-Run a single test file:
-
-```bash
-python3 -m pytest tests/test_tax_aware_optimizer.py -v
-```
-
----
-
-# Current Workflow
-
-1. Generate synthetic clients.
-2. Generate portfolios.
-3. Simulate market movement.
-4. Calculate portfolio drift.
-5. Evaluate threshold, calendar, and event triggers.
-6. Consolidate trigger decisions.
-7. Optimize portfolio allocations.
-8. Generate executable trades.
-9. Estimate transaction costs.
-10. Estimate tax impact.
-
----
-
-# Upcoming Modules
-
-The next development stages include:
-
-* Explainability Engine
-* Human Approval / Override Engine
-* Audit Trail
-* Agentic AI Layer
-* FastAPI Service
-* PostgreSQL Integration
-* Background Scheduling
-* Dashboard
-* Historical Backtesting
-* Cloud Deployment
-
----
-
-# Future Enhancements
-
-* Autonomous multi-agent workflow
-* Real-time market data integration
-* Tax-loss harvesting strategies
-* Portfolio performance analytics
-* Compliance reporting
-* Advisor dashboard
-* Client-facing recommendation reports
-
----
-
-# Learning Outcomes
-
-This project demonstrates practical experience in:
-
-* Portfolio optimization
-* Financial engineering fundamentals
-* Data processing with Pandas
-* Convex optimization using CVXPY
-* Production-quality Python development
-* Software architecture
-* Unit testing with Pytest
-* Clean code and modular design
-* Building AI-ready financial systems
-
----
-
-# License
-
-This project is intended for educational, research, and portfolio demonstration purposes.

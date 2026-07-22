@@ -1,6 +1,8 @@
 from typing import Sequence
 import numpy as np
 import pandas as pd
+
+
 def generate_trade_list(
     asset_names: Sequence[str],
     current_weights: np.ndarray,
@@ -12,20 +14,22 @@ def generate_trade_list(
     Convert optimized portfolio weights into structured trade instructions.
     """
     if not (
-    len(asset_names)
-    == len(current_weights)
-    == len(trade_weights)
-    == len(post_trade_weights)
+        len(asset_names)
+        == len(current_weights)
+        == len(trade_weights)
+        == len(post_trade_weights)
     ):
-            raise ValueError(
-                "All input sequences must have the same length."
-            )
+        raise ValueError(
+            "All input sequences must have the same length."
+        )
+
     trade_records = []
+
     for (
-    asset_name,
-    current_weight,
-    trade_weight,
-    post_trade_weight,
+        asset_name,
+        current_weight,
+        trade_weight,
+        post_trade_weight,
     ) in zip(
         asset_names,
         current_weights,
@@ -38,6 +42,9 @@ def generate_trade_list(
             action = "SELL"
         else:
             action = "HOLD"
+            trade_weight = 0.0
+            post_trade_weight = current_weight
+
         trade_records.append(
             {
                 "asset": asset_name,
@@ -47,6 +54,7 @@ def generate_trade_list(
                 "post_trade_weight": float(post_trade_weight),
             }
         )
+
     return pd.DataFrame(
-    trade_records
-   )
+        trade_records
+    )
