@@ -5,6 +5,8 @@ import math
 import pandas as pd
 
 
+import numpy as np
+
 REQUIRED_COLUMNS = {
     "portfolio_id",
     "asset",
@@ -219,7 +221,10 @@ def _validate_prior_approval_flags(
     invalid_flags = trades[
         "prior_approval_required"
     ].map(
-        lambda value: not isinstance(value, bool)
+        lambda value: not isinstance(
+            value,
+            (bool, np.bool_),
+        )
     )
 
     if invalid_flags.any():
@@ -227,7 +232,6 @@ def _validate_prior_approval_flags(
             "prior_approval_required must contain only "
             "boolean values."
         )
-
 
 def _validate_threshold_severities(
     trades: pd.DataFrame,

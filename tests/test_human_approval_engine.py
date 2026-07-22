@@ -23,6 +23,11 @@ def valid_trades() -> pd.DataFrame:
                 "P00002",
                 "P00003",
             ],
+            "asset": [
+                "domestic_equity",
+                "fixed_income",
+                "cash",
+            ],
             "action": [
                 "BUY",
                 "SELL",
@@ -292,7 +297,17 @@ def test_invalid_trade_values_raise_error(
     """
 
     invalid_trades = valid_trades.copy()
-    invalid_trades.loc[0, "trade_value"] = invalid_trade_value
+
+    # Convert to object so intentionally invalid test values
+    # can be inserted into the float column.
+    invalid_trades["trade_value"] = invalid_trades[
+        "trade_value"
+    ].astype(object)
+
+    invalid_trades.loc[
+        0,
+        "trade_value",
+    ] = invalid_trade_value
 
     with pytest.raises(
         ValueError,
@@ -357,13 +372,23 @@ def test_invalid_prior_approval_flag_raises_error(
     invalid_flag: object,
 ) -> None:
     """
-    Approval flags must be actual Python booleans.
+    Approval flags must be actual boolean values.
     """
 
     invalid_trades = valid_trades.copy()
-    invalid_trades.loc[0, "prior_approval_required"] = (
-        invalid_flag
+
+    # Convert to object so intentionally invalid values
+    # can be inserted into the boolean column.
+    invalid_trades["prior_approval_required"] = (
+        invalid_trades[
+            "prior_approval_required"
+        ].astype(object)
     )
+
+    invalid_trades.loc[
+        0,
+        "prior_approval_required",
+    ] = invalid_flag
 
     with pytest.raises(
         ValueError,
