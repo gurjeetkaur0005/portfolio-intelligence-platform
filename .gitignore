@@ -9,3 +9,4 @@ venv/
 .ruff_cache/
 .coverage
 htmlcov/
+*.py[cod]
