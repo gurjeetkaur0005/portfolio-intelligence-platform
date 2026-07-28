@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from src.data.portfolio_generator import ASSET_CLASSES, generate_portfolios
+from config.asset_classes import ASSET_CLASSES
 
 
 def calculate_drift(portfolios: pd.DataFrame) -> pd.DataFrame:
@@ -60,8 +60,12 @@ def calculate_drift(portfolios: pd.DataFrame) -> pd.DataFrame:
 
 
 if __name__ == "__main__":
+    from src.data.client_profile_generator import generate_client_profiles
+    from src.data.portfolio_generator import generate_portfolios
 
-    portfolios = generate_portfolios()
+    client_profiles = generate_client_profiles()
+
+    portfolios = generate_portfolios(client_profiles)
 
     drift_results = calculate_drift(portfolios)
 

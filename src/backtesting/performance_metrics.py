@@ -4,6 +4,7 @@ from typing import Sequence
 
 import numpy as np
 
+
 def calculate_total_return(
     portfolio_values: Sequence[float],
 ) -> float:
@@ -63,6 +64,7 @@ def calculate_annualized_return(
 
     return float(annualized_return)
 
+
 def calculate_volatility(
     portfolio_values: Sequence[float],
     periods_per_year: int = 252,
@@ -81,14 +83,14 @@ def calculate_volatility(
             "Periods per year must be positive.",
         )
 
-    portfolio_values = np.asarray(
+    portfolio_value_array = np.asarray(
         portfolio_values,
         dtype=float,
     )
 
     period_returns = (
-        portfolio_values[1:]
-        / portfolio_values[:-1]
+        portfolio_value_array[1:]
+        / portfolio_value_array[:-1]
     ) - 1
 
     volatility = (
@@ -100,6 +102,7 @@ def calculate_volatility(
     )
 
     return float(volatility)
+
 
 def calculate_sharpe_ratio(
     annualized_return: float,
@@ -129,6 +132,7 @@ def calculate_sharpe_ratio(
     )
 
     return float(sharpe_ratio)
+
 
 def calculate_maximum_drawdown(
     portfolio_values: Sequence[float],

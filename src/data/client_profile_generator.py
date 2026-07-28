@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import numpy as np
 import pandas as pd
 
@@ -29,16 +31,18 @@ def generate_client_profiles(
     risk_category_names = list(RISK_CATEGORIES.keys())
 
     risk_category_probabilities = [
-        RISK_CATEGORIES[category]["weight"]
+        float(cast(float, RISK_CATEGORIES[category]["weight"]))
         for category in risk_category_names
     ]
 
     rows = []
 
     for client_number in range(1, number_of_clients + 1):
-        risk_category = random_generator.choice(
-            risk_category_names,
-            p=risk_category_probabilities,
+        risk_category = str(
+            random_generator.choice(
+                cast(Any, risk_category_names),
+                p=risk_category_probabilities,
+            )
         )
 
         tax_bracket = random_generator.choice(

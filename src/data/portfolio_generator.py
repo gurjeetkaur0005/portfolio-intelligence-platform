@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import numpy as np
 import pandas as pd
 
@@ -30,14 +32,22 @@ def generate_portfolios(
         category = client.risk_category
         portfolio_id = client.portfolio_id
 
-        category_config = RISK_CATEGORIES[category]
-
-        target = np.array(
-            category_config["target"],
-            dtype=float,
+        category_config = cast(
+            dict[str, Any],
+            RISK_CATEGORIES[category],
         )
 
-        drift_band = category_config["drift_band"]
+        target_config = category_config["target"]
+        if not isinstance(target_config, list):
+            raise ValueError(
+                "Risk category target allocation must be a list."
+            )
+
+        target = np.array(target_config, dtype=float)
+
+        drift_band = float(
+            cast(float, category_config["drift_band"])
+        )
 
         noise = random_generator.normal(
             loc=0,

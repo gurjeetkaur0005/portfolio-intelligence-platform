@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from typing import Any, cast
 
 import pandas as pd
 import pytest
@@ -438,7 +439,7 @@ def test_invalid_approval_threshold_raises_error(
     ):
         evaluate_trade_approvals(
             trades=valid_trades,
-            approval_threshold=invalid_threshold,
+            approval_threshold=cast(Any, invalid_threshold),
         )
 
 

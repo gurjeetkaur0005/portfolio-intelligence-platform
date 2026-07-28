@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any, Protocol
 
 import numpy as np
 import pandas as pd
@@ -17,12 +18,27 @@ from src.explanations.explanation_generator import (
     generate_trade_explanations,
 )
 from src.monitoring.drift_calculator import calculate_drift
-from src.optimization.tax_aware_optimizer import estimate_trade_taxes
+from src.optimization.optimization_models import OptimizationResult
+from src.pipeline.tax_adapter import (
+    estimate_taxes_allowing_zero_holding_buys,
+)
 from src.pipeline.trade_enrichment import enrich_trade_data
 from src.triggers.calendar_trigger import evaluate_calendar_triggers
 from src.triggers.event_trigger import evaluate_event_triggers
 from src.triggers.threshold_trigger import evaluate_threshold_triggers
 from src.triggers.trigger_consolidator import consolidate_triggers
+
+
+class PortfolioOptimizerProtocol(Protocol):
+    """Optimizer interface required by the rebalance pipeline."""
+
+    def optimize(
+        self,
+        current_weights: np.ndarray,
+        target_weights: np.ndarray,
+        covariance_matrix: np.ndarray,
+    ) -> OptimizationResult:
+        """Optimize a portfolio allocation."""
 
 
 def run_rebalance_pipeline(
@@ -81,7 +97,7 @@ def run_rebalance_pipeline(
 
     optimizer = PortfolioOptimizer()
     covariance_matrix = _build_covariance_matrix()
-    trade_frames = []
+    trade_frames: list[pd.DataFrame] = []
 
     for portfolio in portfolios.itertuples(index=False):
         trigger_row = trigger_results.loc[
@@ -112,10 +128,10 @@ def run_rebalance_pipeline(
 
 
 def _rebalance_portfolio(
-    portfolio: object,
+    portfolio: Any,
     trigger_row: pd.Series,
     client_profiles: pd.DataFrame,
-    optimizer: object,
+    optimizer: PortfolioOptimizerProtocol,
     covariance_matrix: np.ndarray,
     portfolio_value: float,
     transaction_cost_rate: float,
@@ -137,7 +153,10 @@ def _rebalance_portfolio(
         covariance_matrix=covariance_matrix,
     )
 
-    if optimization_result.trade_weights is None:
+    if (
+        optimization_result.trade_weights is None
+        or optimization_result.post_trade_weights is None
+    ):
         raise ValueError(optimization_result.message)
 
     trade_list = generate_trade_list(
@@ -160,7 +179,9 @@ def _rebalance_portfolio(
             portfolio_id=str(portfolio.portfolio_id),
         ),
     )
-    tax_aware_trades = _estimate_taxes_for_pipeline(enriched_trades)
+    tax_aware_trades = estimate_taxes_allowing_zero_holding_buys(
+        enriched_trades
+    )
     explained_trades_input = _add_threshold_context(
         trade_list=tax_aware_trades,
         trigger_row=trigger_row,
@@ -170,7 +191,7 @@ def _rebalance_portfolio(
 
 
 def _extract_weights(
-    portfolio: object,
+    portfolio: Any,
     prefix: str,
 ) -> np.ndarray:
     """Extract ordered asset weights from a portfolio row."""
@@ -202,53 +223,6 @@ def _get_tax_rate(
     return float(matching_profiles.iloc[0]["tax_bracket"])
 
 
-def _estimate_taxes_for_pipeline(
-    enriched_trades: pd.DataFrame,
-) -> pd.DataFrame:
-    """
-    Estimate taxes while allowing zero-current-value non-sell rows.
-
-    The tax-aware optimizer keeps strict holding validation. The pipeline
-    adapter handles BUY/HOLD rows with no existing holding as zero-tax rows
-    because they do not realize gains.
-    """
-
-    zero_holding_non_sell_mask = (
-        (enriched_trades["current_value"] <= 0)
-        & (enriched_trades["trade_value"] >= 0)
-    )
-
-    if not zero_holding_non_sell_mask.any():
-        return estimate_trade_taxes(enriched_trades)
-
-    taxable_trades = enriched_trades.loc[
-        ~zero_holding_non_sell_mask
-    ]
-    zero_tax_trades = _add_zero_tax_columns(
-        enriched_trades.loc[zero_holding_non_sell_mask]
-    )
-
-    if taxable_trades.empty:
-        result = zero_tax_trades
-    else:
-        tax_aware_trades = estimate_trade_taxes(taxable_trades)
-        result = pd.concat(
-            [
-                tax_aware_trades,
-                zero_tax_trades,
-            ],
-            axis=0,
-        ).sort_index()
-
-    result["portfolio_estimated_tax"] = (
-        result.groupby("portfolio_id")[
-            "estimated_tax_liability"
-        ].transform("sum")
-    )
-
-    return result.reset_index(drop=True)
-
-
 def _add_threshold_context(
     trade_list: pd.DataFrame,
     trigger_row: pd.Series,
@@ -262,28 +236,6 @@ def _add_threshold_context(
     )
     result["threshold_severity"] = trigger_row["trigger_severity"]
     result["breach_ratio"] = float(trigger_row["breach_ratio"])
-
-    return result
-
-
-def _add_zero_tax_columns(
-    trades: pd.DataFrame,
-) -> pd.DataFrame:
-    """Add zero-tax estimation columns for non-taxable rows."""
-
-    result = trades.copy()
-
-    result["unrealized_gain"] = (
-        result["current_value"]
-        - result["cost_basis"]
-    )
-    result["sell_value"] = 0.0
-    result["sell_fraction"] = 0.0
-    result["estimated_realized_gain"] = 0.0
-    result["estimated_tax_liability"] = 0.0
-    result["creates_tax_liability"] = False
-    result["after_tax_trade_value"] = 0.0
-    result["portfolio_estimated_tax"] = 0.0
 
     return result
 
