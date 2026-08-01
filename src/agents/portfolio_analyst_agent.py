@@ -43,9 +43,14 @@ SEVERITY_RANK = {
     "critical": 3,
 }
 
+MONETARY_COLUMNS = [
+    "transaction_cost",
+    "estimated_tax_liability",
+]
+
 
 class ExplanationGeneratorProtocol(Protocol):
-    """Contract for a trade-explanation generator."""
+    """Contract for a trade-level explanation generator."""
 
     def __call__(
         self,
@@ -58,23 +63,25 @@ class ExplanationGeneratorProtocol(Protocol):
 @dataclass(frozen=True, slots=True)
 class PortfolioAnalysis:
     """
-    Store a deterministic portfolio-level analysis.
+    Store deterministic portfolio-level facts.
 
     Financial calculations are performed by upstream modules. This object
-    only summarizes their already-calculated outputs.
+    only organizes and aggregates their existing outputs.
+
+    It does not generate portfolio-level client, advisor, or compliance
+    communication.
     """
 
     portfolio_id: object
     rebalance_required: bool
     highest_threshold_severity: str
     threshold_breached: bool
+    threshold_breach_count: int
     assets_to_buy: tuple[str, ...]
     assets_to_sell: tuple[str, ...]
     assets_to_hold: tuple[str, ...]
     total_transaction_cost: float
     total_estimated_tax_liability: float
-    client_summary: str
-    advisor_summary: str
     client_explanations: tuple[str, ...]
     advisor_explanations: tuple[str, ...]
     compliance_explanations: tuple[str, ...]
@@ -92,10 +99,12 @@ class PortfolioAnalystAgent:
     - Trade values
     - Transaction costs
     - Tax liabilities
+    - Trade actions
     - Individual trade explanations
+    - Audience-specific portfolio summaries
 
-    It reads and summarizes outputs produced by the existing financial
-    engine and explanation generator.
+    It only organizes and aggregates outputs produced by the existing
+    deterministic financial engine.
     """
 
     def __init__(
@@ -111,12 +120,27 @@ class PortfolioAnalystAgent:
         trade_list: pd.DataFrame,
     ) -> list[PortfolioAnalysis]:
         """
-        Generate one analysis result for each portfolio.
+        Generate one structured analysis for each portfolio.
 
-        If explanation columns are already present, they are reused.
-        Otherwise, the configured explanation generator is called.
+        Existing explanation columns are reused. If they are absent, the
+        configured deterministic explanation generator is called.
 
-        The input DataFrame is not mutated.
+        The caller-owned DataFrame is never mutated.
+
+        Args:
+            trade_list:
+                Trade results produced by the deterministic pipeline.
+
+        Returns:
+            One PortfolioAnalysis object per portfolio.
+
+        Raises:
+            TypeError:
+                If trade_list is not a pandas DataFrame or the explanation
+                generator returns an invalid type.
+
+            ValueError:
+                If required columns or values are invalid.
         """
 
         if not isinstance(trade_list, pd.DataFrame):
@@ -155,7 +179,12 @@ class PortfolioAnalystAgent:
         self,
         trade_list: pd.DataFrame,
     ) -> pd.DataFrame:
-        """Return a safe DataFrame containing trade explanations."""
+        """
+        Return a safe DataFrame containing trade explanations.
+
+        Existing explanation columns are reused to avoid unnecessary
+        regeneration.
+        """
 
         if EXPLANATION_COLUMNS.issubset(trade_list.columns):
             return trade_list.copy()
@@ -198,14 +227,21 @@ def _validate_analysis_inputs(
             "Asset names must not be missing."
         )
 
-    invalid_asset_names = (
-        explained_trades["asset"]
-        .map(lambda value: not isinstance(value, str) or not value.strip())
+    invalid_asset_names = explained_trades["asset"].map(
+        lambda value: (
+            not isinstance(value, str)
+            or not value.strip()
+        )
     )
 
     if invalid_asset_names.any():
         raise ValueError(
             "Asset names must be non-empty strings."
+        )
+
+    if explained_trades["action"].isna().any():
+        raise ValueError(
+            "Actions must not be missing."
         )
 
     invalid_actions = ~explained_trades["action"].isin(
@@ -215,6 +251,11 @@ def _validate_analysis_inputs(
     if invalid_actions.any():
         raise ValueError(
             "Action must be one of BUY, SELL, or HOLD."
+        )
+
+    if explained_trades["threshold_severity"].isna().any():
+        raise ValueError(
+            "Threshold severity must not be missing."
         )
 
     invalid_severities = (
@@ -239,6 +280,11 @@ def _validate_threshold_flags(
 ) -> None:
     """Validate threshold-breached Boolean values."""
 
+    if explained_trades["threshold_breached"].isna().any():
+        raise ValueError(
+            "Threshold breached values must not be missing."
+        )
+
     invalid_flags = explained_trades[
         "threshold_breached"
     ].map(
@@ -259,19 +305,16 @@ def _validate_monetary_values(
 ) -> None:
     """Validate already-calculated costs and tax liabilities."""
 
-    monetary_columns = [
-        "transaction_cost",
-        "estimated_tax_liability",
-    ]
-
-    if explained_trades[monetary_columns].isna().any().any():
+    if explained_trades[
+        MONETARY_COLUMNS
+    ].isna().any().any():
         raise ValueError(
             "Transaction costs and tax liabilities "
             "must not be missing."
         )
 
     monetary_values = explained_trades[
-        monetary_columns
+        MONETARY_COLUMNS
     ].apply(
         pd.to_numeric,
         errors="coerce",
@@ -291,7 +334,7 @@ def _validate_monetary_values(
             "must be finite."
         )
 
-    if (monetary_values < 0).any().any():
+    if (monetary_values < 0.0).any().any():
         raise ValueError(
             "Transaction costs and tax liabilities "
             "must not be negative."
@@ -301,7 +344,7 @@ def _validate_monetary_values(
 def _validate_explanation_text(
     explained_trades: pd.DataFrame,
 ) -> None:
-    """Validate generated explanation columns."""
+    """Validate generated or reused explanation text."""
 
     for column in sorted(EXPLANATION_COLUMNS):
         invalid_values = explained_trades[column].map(
@@ -321,16 +364,18 @@ def _build_portfolio_analysis(
     portfolio_id: object,
     portfolio_trades: pd.DataFrame,
 ) -> PortfolioAnalysis:
-    """Build one portfolio-level analysis."""
+    """Build one structured portfolio-level analysis."""
 
     assets_to_buy = _extract_assets_by_action(
         portfolio_trades=portfolio_trades,
         action="BUY",
     )
+
     assets_to_sell = _extract_assets_by_action(
         portfolio_trades=portfolio_trades,
         action="SELL",
     )
+
     assets_to_hold = _extract_assets_by_action(
         portfolio_trades=portfolio_trades,
         action="HOLD",
@@ -342,6 +387,10 @@ def _build_portfolio_analysis(
 
     threshold_breached = bool(
         portfolio_trades["threshold_breached"].any()
+    )
+
+    threshold_breach_count = int(
+        portfolio_trades["threshold_breached"].sum()
     )
 
     highest_severity = _find_highest_severity(
@@ -358,36 +407,12 @@ def _build_portfolio_analysis(
         ].sum()
     )
 
-    client_summary = _build_client_summary(
-        portfolio_id=portfolio_id,
-        rebalance_required=rebalance_required,
-        assets_to_buy=assets_to_buy,
-        assets_to_sell=assets_to_sell,
-        total_transaction_cost=total_transaction_cost,
-        total_estimated_tax_liability=(
-            total_estimated_tax_liability
-        ),
-    )
-
-    advisor_summary = _build_advisor_summary(
-        portfolio_id=portfolio_id,
-        rebalance_required=rebalance_required,
-        threshold_breached=threshold_breached,
-        highest_severity=highest_severity,
-        assets_to_buy=assets_to_buy,
-        assets_to_sell=assets_to_sell,
-        assets_to_hold=assets_to_hold,
-        total_transaction_cost=total_transaction_cost,
-        total_estimated_tax_liability=(
-            total_estimated_tax_liability
-        ),
-    )
-
     return PortfolioAnalysis(
         portfolio_id=portfolio_id,
         rebalance_required=rebalance_required,
         highest_threshold_severity=highest_severity,
         threshold_breached=threshold_breached,
+        threshold_breach_count=threshold_breach_count,
         assets_to_buy=assets_to_buy,
         assets_to_sell=assets_to_sell,
         assets_to_hold=assets_to_hold,
@@ -395,22 +420,17 @@ def _build_portfolio_analysis(
         total_estimated_tax_liability=(
             total_estimated_tax_liability
         ),
-        client_summary=client_summary,
-        advisor_summary=advisor_summary,
-        client_explanations=tuple(
-            portfolio_trades[
-                "client_explanation"
-            ].astype(str)
+        client_explanations=_extract_explanations(
+            portfolio_trades=portfolio_trades,
+            column="client_explanation",
         ),
-        advisor_explanations=tuple(
-            portfolio_trades[
-                "advisor_explanation"
-            ].astype(str)
+        advisor_explanations=_extract_explanations(
+            portfolio_trades=portfolio_trades,
+            column="advisor_explanation",
         ),
-        compliance_explanations=tuple(
-            portfolio_trades[
-                "compliance_explanation"
-            ].astype(str)
+        compliance_explanations=_extract_explanations(
+            portfolio_trades=portfolio_trades,
+            column="compliance_explanation",
         ),
     )
 
@@ -419,7 +439,7 @@ def _extract_assets_by_action(
     portfolio_trades: pd.DataFrame,
     action: str,
 ) -> tuple[str, ...]:
-    """Return assets associated with a specified action."""
+    """Return assets associated with an existing trade action."""
 
     matching_assets = portfolio_trades.loc[
         portfolio_trades["action"] == action,
@@ -432,6 +452,18 @@ def _extract_assets_by_action(
     )
 
 
+def _extract_explanations(
+    portfolio_trades: pd.DataFrame,
+    column: str,
+) -> tuple[str, ...]:
+    """Return validated explanations from one explanation column."""
+
+    return tuple(
+        str(explanation)
+        for explanation in portfolio_trades[column]
+    )
+
+
 def _find_highest_severity(
     severities: pd.Series,
 ) -> str:
@@ -440,86 +472,4 @@ def _find_highest_severity(
     return max(
         (str(severity) for severity in severities),
         key=SEVERITY_RANK.__getitem__,
-    )
-
-
-def _format_asset_list(
-    assets: tuple[str, ...],
-) -> str:
-    """Format internal asset names for readable summaries."""
-
-    if not assets:
-        return "none"
-
-    return ", ".join(
-        asset.replace("_", " ")
-        for asset in assets
-    )
-
-
-def _format_currency(
-    value: float,
-) -> str:
-    """Format a monetary value using US dollars."""
-
-    return f"${value:,.2f}"
-
-
-def _build_client_summary(
-    portfolio_id: object,
-    rebalance_required: bool,
-    assets_to_buy: tuple[str, ...],
-    assets_to_sell: tuple[str, ...],
-    total_transaction_cost: float,
-    total_estimated_tax_liability: float,
-) -> str:
-    """Build a simple portfolio-level client summary."""
-
-    if not rebalance_required:
-        return (
-            f"Portfolio {portfolio_id} does not require "
-            "rebalancing. All positions will remain unchanged."
-        )
-
-    return (
-        f"Portfolio {portfolio_id} requires rebalancing. "
-        f"The plan increases {_format_asset_list(assets_to_buy)} "
-        f"and decreases {_format_asset_list(assets_to_sell)}. "
-        "The combined estimated transaction cost is "
-        f"{_format_currency(total_transaction_cost)}, and the "
-        "combined estimated tax liability is "
-        f"{_format_currency(total_estimated_tax_liability)}."
-    )
-
-
-def _build_advisor_summary(
-    portfolio_id: object,
-    rebalance_required: bool,
-    threshold_breached: bool,
-    highest_severity: str,
-    assets_to_buy: tuple[str, ...],
-    assets_to_sell: tuple[str, ...],
-    assets_to_hold: tuple[str, ...],
-    total_transaction_cost: float,
-    total_estimated_tax_liability: float,
-) -> str:
-    """Build a detailed portfolio-level advisor summary."""
-
-    recommendation = (
-        "Rebalancing is recommended."
-        if rebalance_required
-        else "Rebalancing is not required."
-    )
-
-    return (
-        f"Portfolio {portfolio_id}: {recommendation} "
-        f"Threshold breached: {threshold_breached}. "
-        f"Highest threshold severity: {highest_severity}. "
-        f"Assets to buy: {_format_asset_list(assets_to_buy)}. "
-        f"Assets to sell: {_format_asset_list(assets_to_sell)}. "
-        f"Assets to hold: {_format_asset_list(assets_to_hold)}. "
-        "Total estimated transaction cost: "
-        f"{_format_currency(total_transaction_cost)}. "
-        "Total estimated tax liability: "
-        f"{_format_currency(total_estimated_tax_liability)}."
     )

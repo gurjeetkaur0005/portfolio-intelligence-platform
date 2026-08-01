@@ -1,420 +1,204 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 
-import numpy as np
-import pandas as pd
-
-from src.explanations.explanation_generator import (
-    generate_trade_explanations,
+from src.agents.portfolio_analyst_agent import (
+    PortfolioAnalysis,
 )
-
-
-EXPLANATION_COLUMNS = {
-    "client_explanation",
-    "advisor_explanation",
-    "compliance_explanation",
-}
-
-REQUIRED_PACKAGE_COLUMNS = {
-    "portfolio_id",
-    "action",
-    "threshold_breached",
-    "threshold_severity",
-    "transaction_cost",
-    "estimated_tax_liability",
-}
-
-ALLOWED_ACTIONS = {
-    "BUY",
-    "SELL",
-    "HOLD",
-}
-
-SEVERITY_RANK = {
-    "none": 0,
-    "medium": 1,
-    "high": 2,
-    "critical": 3,
-}
-
-MONEY_COLUMNS = [
-    "transaction_cost",
-    "estimated_tax_liability",
-]
-
-
-class TradeExplanationGeneratorProtocol(Protocol):
-    """Contract for trade-level explanation generation."""
-
-    def __call__(
-        self,
-        trade_list: pd.DataFrame,
-    ) -> pd.DataFrame:
-        """Return a DataFrame containing trade explanation columns."""
 
 
 @dataclass(frozen=True, slots=True)
 class PortfolioExplanation:
     """
-    Portfolio-level communication package.
+    Store audience-specific portfolio communication.
 
-    The package summarizes deterministic trade outputs. It does not
-    calculate drift, optimization results, trade actions, costs, or taxes.
+    All portfolio facts come from PortfolioAnalysis. This object contains
+    only communication produced from those existing facts.
     """
 
     portfolio_id: object
     client_summary: str
     advisor_summary: str
     compliance_summary: str
-    trade_count: int
-    buy_count: int
-    sell_count: int
-    hold_count: int
-    total_transaction_cost: float
-    total_estimated_tax: float
-    highest_threshold_severity: str
-    threshold_breach_count: int
 
 
 class ExplanationAgent:
     """
-    Build portfolio-level explanations from deterministic trade outputs.
+    Convert structured portfolio analysis into audience-specific summaries.
 
-    Trade-level explanations remain owned by
-    ``generate_trade_explanations``. This agent reuses those columns when
-    present and delegates to the generator only when they are missing.
+    The agent does not:
+
+    - Calculate drift
+    - Evaluate triggers
+    - Generate trades
+    - Calculate transaction costs
+    - Calculate taxes
+    - Count threshold breaches
+    - Determine threshold severity
+    - Group raw trade rows
+    - Generate individual trade explanations
+
+    Those responsibilities belong to upstream deterministic modules and
+    the Portfolio Analyst Agent.
     """
-
-    def __init__(
-        self,
-        trade_explanation_generator: (
-            TradeExplanationGeneratorProtocol
-        ) = generate_trade_explanations,
-    ) -> None:
-        self._trade_explanation_generator = trade_explanation_generator
 
     def explain(
         self,
-        trades: pd.DataFrame,
+        analyses: list[PortfolioAnalysis],
     ) -> list[PortfolioExplanation]:
         """
-        Return one portfolio-level explanation per portfolio.
+        Generate one explanation package for each portfolio analysis.
 
-        The caller-owned DataFrame is never mutated.
+        Args:
+            analyses:
+                Structured results returned by PortfolioAnalystAgent.
+
+        Returns:
+            One PortfolioExplanation object per portfolio.
+
+        Raises:
+            TypeError:
+                If analyses is not a list or contains invalid objects.
         """
 
-        if not isinstance(trades, pd.DataFrame):
-            raise TypeError(
-                "Trades must be provided as a pandas DataFrame."
-            )
-
-        if trades.empty:
-            return []
-
-        explained_trades = self._prepare_explained_trades(trades)
-        _validate_explained_trades(explained_trades)
+        _validate_analyses(analyses)
 
         return [
-            _build_portfolio_explanation(
-                portfolio_id=portfolio_id,
-                portfolio_trades=portfolio_trades,
-            )
-            for portfolio_id, portfolio_trades in explained_trades.groupby(
-                "portfolio_id",
-                sort=False,
-                dropna=False,
-            )
+            _build_portfolio_explanation(analysis)
+            for analysis in analyses
         ]
 
-    def _prepare_explained_trades(
-        self,
-        trades: pd.DataFrame,
-    ) -> pd.DataFrame:
-        """Return a copied DataFrame with explanation columns."""
 
-        if EXPLANATION_COLUMNS.issubset(trades.columns):
-            return trades.copy()
-
-        explained_trades = self._trade_explanation_generator(
-            trades.copy()
-        )
-
-        if not isinstance(explained_trades, pd.DataFrame):
-            raise TypeError(
-                "Trade explanation generator must return "
-                "a pandas DataFrame."
-            )
-
-        return explained_trades.copy()
-
-
-def _validate_explained_trades(
-    trades: pd.DataFrame,
+def _validate_analyses(
+    analyses: list[PortfolioAnalysis],
 ) -> None:
-    """Validate columns and values needed for portfolio explanations."""
+    """Validate PortfolioAnalysis inputs."""
 
-    missing_columns = (
-        REQUIRED_PACKAGE_COLUMNS
-        | EXPLANATION_COLUMNS
-    ) - set(trades.columns)
-
-    if missing_columns:
-        raise ValueError(
-            "Explained trades are missing required columns: "
-            f"{sorted(missing_columns)}"
+    if not isinstance(analyses, list):
+        raise TypeError(
+            "Analyses must be provided as a list."
         )
 
-    if trades["portfolio_id"].isna().any():
-        raise ValueError("Portfolio IDs must not be missing.")
+    invalid_analyses = [
+        analysis
+        for analysis in analyses
+        if not isinstance(analysis, PortfolioAnalysis)
+    ]
 
-    if trades["action"].isna().any():
-        raise ValueError("Actions must not be missing.")
-
-    invalid_actions = ~trades["action"].isin(ALLOWED_ACTIONS)
-    if invalid_actions.any():
-        raise ValueError("Action must be one of BUY, SELL, or HOLD.")
-
-    if trades["threshold_severity"].isna().any():
-        raise ValueError("Threshold severity must not be missing.")
-
-    invalid_severities = ~trades["threshold_severity"].isin(
-        SEVERITY_RANK
-    )
-    if invalid_severities.any():
-        raise ValueError(
-            "Threshold severity must be one of none, medium, "
-            "high, or critical."
+    if invalid_analyses:
+        raise TypeError(
+            "Analyses must contain PortfolioAnalysis objects."
         )
-
-    _validate_threshold_flags(trades)
-    _validate_money_columns(trades)
-    _validate_explanation_columns(trades)
-
-
-def _validate_threshold_flags(
-    trades: pd.DataFrame,
-) -> None:
-    """Validate threshold-breached flags."""
-
-    invalid_flags = trades["threshold_breached"].map(
-        lambda value: not isinstance(value, (bool, np.bool_))
-    )
-
-    if invalid_flags.any():
-        raise ValueError(
-            "Threshold breached must contain Boolean values."
-        )
-
-
-def _validate_money_columns(
-    trades: pd.DataFrame,
-) -> None:
-    """Validate already-computed cost and tax columns."""
-
-    if trades[MONEY_COLUMNS].isna().any().any():
-        raise ValueError(
-            "Transaction costs and estimated taxes must not be missing."
-        )
-
-    money_values = trades[MONEY_COLUMNS].apply(
-        pd.to_numeric,
-        errors="coerce",
-    )
-
-    if money_values.isna().any().any():
-        raise ValueError(
-            "Transaction costs and estimated taxes must be valid numbers."
-        )
-
-    if not np.isfinite(money_values.to_numpy(dtype=float)).all():
-        raise ValueError(
-            "Transaction costs and estimated taxes must be finite."
-        )
-
-    if (money_values < 0.0).any().any():
-        raise ValueError(
-            "Transaction costs and estimated taxes must not be negative."
-        )
-
-
-def _validate_explanation_columns(
-    trades: pd.DataFrame,
-) -> None:
-    """Validate reused or generated explanation text columns."""
-
-    for column in sorted(EXPLANATION_COLUMNS):
-        invalid_values = trades[column].map(
-            lambda value: (
-                not isinstance(value, str)
-                or not value.strip()
-            )
-        )
-
-        if invalid_values.any():
-            raise ValueError(
-                f"{column} must contain non-empty strings."
-            )
 
 
 def _build_portfolio_explanation(
-    portfolio_id: object,
-    portfolio_trades: pd.DataFrame,
+    analysis: PortfolioAnalysis,
 ) -> PortfolioExplanation:
-    """Build a portfolio-level explanation package."""
-
-    trade_count = len(portfolio_trades)
-    buy_count = _count_action(portfolio_trades, "BUY")
-    sell_count = _count_action(portfolio_trades, "SELL")
-    hold_count = _count_action(portfolio_trades, "HOLD")
-    total_transaction_cost = float(
-        portfolio_trades["transaction_cost"].sum()
-    )
-    total_estimated_tax = float(
-        portfolio_trades["estimated_tax_liability"].sum()
-    )
-    highest_severity = _highest_severity(
-        portfolio_trades["threshold_severity"]
-    )
-    threshold_breach_count = int(
-        portfolio_trades["threshold_breached"].sum()
-    )
+    """Build one audience-specific explanation package."""
 
     return PortfolioExplanation(
-        portfolio_id=portfolio_id,
-        client_summary=_build_client_summary(
-            trade_count=trade_count,
-            buy_count=buy_count,
-            sell_count=sell_count,
-            threshold_breach_count=threshold_breach_count,
-            total_transaction_cost=total_transaction_cost,
-            total_estimated_tax=total_estimated_tax,
-        ),
-        advisor_summary=_build_advisor_summary(
-            portfolio_id=portfolio_id,
-            trade_count=trade_count,
-            buy_count=buy_count,
-            sell_count=sell_count,
-            hold_count=hold_count,
-            highest_severity=highest_severity,
-            threshold_breach_count=threshold_breach_count,
-            total_transaction_cost=total_transaction_cost,
-            total_estimated_tax=total_estimated_tax,
-        ),
-        compliance_summary=_build_compliance_summary(),
-        trade_count=trade_count,
-        buy_count=buy_count,
-        sell_count=sell_count,
-        hold_count=hold_count,
-        total_transaction_cost=total_transaction_cost,
-        total_estimated_tax=total_estimated_tax,
-        highest_threshold_severity=highest_severity,
-        threshold_breach_count=threshold_breach_count,
-    )
-
-
-def _count_action(
-    portfolio_trades: pd.DataFrame,
-    action: str,
-) -> int:
-    """Count rows with a given existing trade action."""
-
-    return int((portfolio_trades["action"] == action).sum())
-
-
-def _highest_severity(
-    severities: pd.Series,
-) -> str:
-    """Return the highest existing threshold severity."""
-
-    return max(
-        (str(severity) for severity in severities),
-        key=SEVERITY_RANK.__getitem__,
+        portfolio_id=analysis.portfolio_id,
+        client_summary=_build_client_summary(analysis),
+        advisor_summary=_build_advisor_summary(analysis),
+        compliance_summary=_build_compliance_summary(analysis),
     )
 
 
 def _build_client_summary(
-    trade_count: int,
-    buy_count: int,
-    sell_count: int,
-    threshold_breach_count: int,
-    total_transaction_cost: float,
-    total_estimated_tax: float,
+    analysis: PortfolioAnalysis,
 ) -> str:
-    """Build a client-facing portfolio summary."""
+    """Build a simple client-facing portfolio summary."""
 
-    if buy_count == 0 and sell_count == 0:
+    if not analysis.rebalance_required:
         return (
-            "Your portfolio does not require trading. "
-            "All recommended actions are holds."
+            f"Portfolio {analysis.portfolio_id} does not require "
+            "rebalancing. All recommended positions remain unchanged."
         )
 
-    threshold_phrase = (
-        "has drifted away from its intended allocation"
-        if threshold_breach_count > 0
-        else "remains within its threshold controls"
-    )
-
     return (
-        f"Your portfolio {threshold_phrase}. "
-        f"{_format_count(trade_count, 'trade')} are reviewed, "
-        f"including {_format_count(buy_count, 'buy')} and "
-        f"{_format_count(sell_count, 'sell')}. "
-        "Estimated transaction costs are "
-        f"{_format_currency(total_transaction_cost)}, with "
-        f"estimated taxes of {_format_currency(total_estimated_tax)}."
+        f"Portfolio {analysis.portfolio_id} requires rebalancing. "
+        f"The plan increases "
+        f"{_format_asset_list(analysis.assets_to_buy)} and decreases "
+        f"{_format_asset_list(analysis.assets_to_sell)}. "
+        "The estimated transaction cost is "
+        f"{_format_currency(analysis.total_transaction_cost)}, "
+        "and the estimated tax liability is "
+        f"{_format_currency(
+            analysis.total_estimated_tax_liability
+        )}."
     )
 
 
 def _build_advisor_summary(
-    portfolio_id: object,
-    trade_count: int,
-    buy_count: int,
-    sell_count: int,
-    hold_count: int,
-    highest_severity: str,
-    threshold_breach_count: int,
-    total_transaction_cost: float,
-    total_estimated_tax: float,
+    analysis: PortfolioAnalysis,
 ) -> str:
-    """Build an advisor-facing portfolio summary."""
+    """Build a detailed advisor-facing portfolio summary."""
+
+    recommendation = (
+        "Rebalancing is recommended."
+        if analysis.rebalance_required
+        else "Rebalancing is not required."
+    )
 
     return (
-        f"Portfolio {portfolio_id} triggered a "
-        f"{highest_severity}-severity threshold state. "
-        f"{_format_count(trade_count, 'trade')} are included: "
-        f"{buy_count} BUY, {sell_count} SELL, and {hold_count} HOLD. "
-        f"Threshold breaches: {threshold_breach_count}. "
-        "Estimated transaction costs are "
-        f"{_format_currency(total_transaction_cost)} with "
-        f"estimated taxes of {_format_currency(total_estimated_tax)}."
+        f"Portfolio {analysis.portfolio_id}: {recommendation} "
+        f"Threshold breached: {analysis.threshold_breached}. "
+        f"Threshold breach count: "
+        f"{analysis.threshold_breach_count}. "
+        f"Highest threshold severity: "
+        f"{analysis.highest_threshold_severity}. "
+        f"Assets to buy: "
+        f"{_format_asset_list(analysis.assets_to_buy)}. "
+        f"Assets to sell: "
+        f"{_format_asset_list(analysis.assets_to_sell)}. "
+        f"Assets to hold: "
+        f"{_format_asset_list(analysis.assets_to_hold)}. "
+        "Total estimated transaction cost: "
+        f"{_format_currency(analysis.total_transaction_cost)}. "
+        "Total estimated tax liability: "
+        f"{_format_currency(
+            analysis.total_estimated_tax_liability
+        )}."
     )
 
 
-def _build_compliance_summary() -> str:
-    """Build a compliance-facing portfolio summary."""
+def _build_compliance_summary(
+    analysis: PortfolioAnalysis,
+) -> str:
+    """Build a traceable compliance-facing portfolio summary."""
 
     return (
-        "Summary generated from deterministic optimizer outputs. "
-        "No financial calculations were performed inside the "
-        "Explanation Agent."
+        "Portfolio-level explanation generated from deterministic "
+        "portfolio analysis. "
+        f"Portfolio ID: {analysis.portfolio_id}. "
+        f"Rebalancing required: {analysis.rebalance_required}. "
+        f"Threshold breached: {analysis.threshold_breached}. "
+        f"Threshold breach count: "
+        f"{analysis.threshold_breach_count}. "
+        f"Highest threshold severity: "
+        f"{analysis.highest_threshold_severity}. "
+        "No financial calculations or trade decisions were performed "
+        "inside the Explanation Agent."
     )
 
 
-def _format_count(
-    count: int,
-    singular_label: str,
+def _format_asset_list(
+    assets: tuple[str, ...],
 ) -> str:
-    """Format a count with a singular or plural label."""
+    """Format internal asset names for readable communication."""
 
-    label = singular_label if count == 1 else f"{singular_label}s"
-    return f"{count} {label}"
+    if not assets:
+        return "none"
+
+    return ", ".join(
+        asset.replace("_", " ")
+        for asset in assets
+    )
 
 
 def _format_currency(
     value: float,
 ) -> str:
-    """Format a monetary value for portfolio-level communication."""
+    """Format a monetary value for communication."""
 
     return f"${value:,.2f}"
