@@ -575,65 +575,46 @@ def test_prompt_preview_invalid_audience_returns_422() -> None:
 
 
 def test_openapi_contains_expected_routes_once() -> None:
-    paths = client.get("/openapi.json").json()["paths"]
+    response = client.get("/openapi.json")
 
-    for path in [
-        "/health",
-        "/llm/health",
-        "/rebalance",
-        "/rebalance/explain",
-        "/portfolio-analysis",
-        "/portfolio-explanations",
-        "/backtests/buy-and-hold",
-        "/backtests/threshold-rebalancing",
-        "/strategy-comparisons",
-        "/llm/prompts/preview",
-    ]:
+    assert response.status_code == 200
+
+    paths = response.json()["paths"]
+    expected_operations = {
+        "/health": "get",
+        "/llm/health": "get",
+        "/rebalance": "post",
+        "/rebalance/explain": "post",
+        "/portfolio-analysis": "post",
+        "/portfolio-explanations": "post",
+        "/backtests/buy-and-hold": "post",
+        "/backtests/threshold-rebalancing": "post",
+        "/strategy-comparisons": "post",
+        "/llm/prompts/preview": "post",
+    }
+
+    for path, method in expected_operations.items():
         assert path in paths
+        assert list(paths[path]) == [method]
 
-    route_paths = [
-        route.path
-        for route in app.routes
-        if hasattr(route, "methods")
-    ]
-    assert route_paths.count("/backtests/threshold-rebalancing") == 1
-
-
-def test_route_state_pollution_can_be_reproduced() -> None:
-    client.get("/openapi.json")
-
-    app.router.routes[:] = [
-        route
-        for route in app.router.routes
-        if route.path
+    operation_ids = [
+        operation["operationId"]
+        for path_item in paths.values()
+        for method, operation in path_item.items()
+        if method
         in {
-            "/openapi.json",
-            "/docs",
-            "/docs/oauth2-redirect",
-            "/redoc",
-            "/health",
+            "get",
+            "post",
+            "put",
+            "patch",
+            "delete",
+            "options",
+            "head",
+            "trace",
         }
     ]
 
-    route_paths = [
-        route.path
-        for route in app.routes
-        if hasattr(route, "methods")
-    ]
-
-    assert "/backtests/threshold-rebalancing" not in route_paths
-
-
-def test_api_route_state_is_intact_after_previous_test() -> None:
-    paths = client.get("/openapi.json").json()["paths"]
-    route_paths = [
-        route.path
-        for route in app.routes
-        if hasattr(route, "methods")
-    ]
-
-    assert "/backtests/threshold-rebalancing" in paths
-    assert route_paths.count("/backtests/threshold-rebalancing") == 1
+    assert len(operation_ids) == len(set(operation_ids))
 
 
 def test_llm_health_response_is_immutable() -> None:
