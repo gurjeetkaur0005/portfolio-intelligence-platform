@@ -5,6 +5,13 @@ from dataclasses import dataclass
 from src.agents.portfolio_analyst_agent import (
     PortfolioAnalysis,
 )
+from src.llm.language_model import (
+    LanguageModelProtocol,
+)
+from src.llm.prompt_builder import (
+    PromptAudience,
+    PromptBuilder,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +49,29 @@ class ExplanationAgent:
     the Portfolio Analyst Agent.
     """
 
+    def __init__(
+        self,
+        prompt_builder: PromptBuilder | None = None,
+        language_model: LanguageModelProtocol | None = None,
+    ) -> None:
+        """
+        Initialize the explanation coordinator.
+
+        Args:
+            prompt_builder:
+                Builder used only when a language model is supplied.
+            language_model:
+                Optional provider-independent language model. When omitted,
+                deterministic summaries are returned exactly as before.
+        """
+
+        self._prompt_builder = (
+            prompt_builder
+            if prompt_builder is not None
+            else PromptBuilder()
+        )
+        self._language_model = language_model
+
     def explain(
         self,
         analyses: list[PortfolioAnalysis],
@@ -64,7 +94,11 @@ class ExplanationAgent:
         _validate_analyses(analyses)
 
         return [
-            _build_portfolio_explanation(analysis)
+            _build_portfolio_explanation(
+                analysis=analysis,
+                prompt_builder=self._prompt_builder,
+                language_model=self._language_model,
+            )
             for analysis in analyses
         ]
 
@@ -93,15 +127,44 @@ def _validate_analyses(
 
 def _build_portfolio_explanation(
     analysis: PortfolioAnalysis,
+    prompt_builder: PromptBuilder,
+    language_model: LanguageModelProtocol | None,
 ) -> PortfolioExplanation:
     """Build one audience-specific explanation package."""
 
+    client_summary = _build_client_summary(analysis)
+
+    if language_model is not None:
+        client_summary = _generate_llm_summary(
+            analysis=analysis,
+            prompt_builder=prompt_builder,
+            language_model=language_model,
+            audience=PromptAudience.CLIENT,
+        )
+
     return PortfolioExplanation(
         portfolio_id=analysis.portfolio_id,
-        client_summary=_build_client_summary(analysis),
+        client_summary=client_summary,
         advisor_summary=_build_advisor_summary(analysis),
         compliance_summary=_build_compliance_summary(analysis),
     )
+
+
+def _generate_llm_summary(
+    analysis: PortfolioAnalysis,
+    prompt_builder: PromptBuilder,
+    language_model: LanguageModelProtocol,
+    audience: PromptAudience,
+) -> str:
+    """Generate one audience summary through injected LLM dependencies."""
+
+    request = prompt_builder.build(
+        analysis=analysis,
+        audience=audience,
+    )
+    response = language_model.generate(request)
+
+    return response.text
 
 
 def _build_client_summary(
