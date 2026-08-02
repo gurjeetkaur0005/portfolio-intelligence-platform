@@ -6,6 +6,7 @@ from typing import Any, Protocol
 import numpy as np
 import pandas as pd
 
+from src.audit.audit_trail import create_audit_trail
 from config.asset_classes import ASSET_CLASSES
 from config.settings import RANDOM_SEED
 from src.data.client_profile_generator import generate_client_profiles
@@ -19,6 +20,7 @@ from src.explanations.explanation_generator import (
 )
 from src.monitoring.drift_calculator import calculate_drift
 from src.optimization.optimization_models import OptimizationResult
+from src.override.human_approval_engine import evaluate_trade_approvals
 from src.pipeline.tax_adapter import (
     estimate_taxes_allowing_zero_holding_buys,
 )
@@ -187,7 +189,20 @@ def _rebalance_portfolio(
         trigger_row=trigger_row,
     )
 
-    return generate_trade_explanations(explained_trades_input)
+    explained_trades = generate_trade_explanations(
+        explained_trades_input
+    )
+    approval_ready_trades = _add_approval_and_audit_context(
+        trade_list=explained_trades,
+        trigger_row=trigger_row,
+        client_profiles=client_profiles,
+        portfolio_id=str(portfolio.portfolio_id),
+    )
+    approved_trades = evaluate_trade_approvals(
+        approval_ready_trades
+    )
+
+    return create_audit_trail(approved_trades)
 
 
 def _extract_weights(
@@ -211,6 +226,34 @@ def _get_tax_rate(
 ) -> float:
     """Return the tax rate associated with a portfolio."""
 
+    return float(
+        _get_client_profile_row(
+            client_profiles=client_profiles,
+            portfolio_id=portfolio_id,
+        )["tax_bracket"]
+    )
+
+
+def _get_prior_approval_required(
+    client_profiles: pd.DataFrame,
+    portfolio_id: str,
+) -> bool:
+    """Return whether the client requires prior trade approval."""
+
+    return bool(
+        _get_client_profile_row(
+            client_profiles=client_profiles,
+            portfolio_id=portfolio_id,
+        )["prior_approval_required"]
+    )
+
+
+def _get_client_profile_row(
+    client_profiles: pd.DataFrame,
+    portfolio_id: str,
+) -> pd.Series:
+    """Return the client profile row associated with a portfolio."""
+
     matching_profiles = client_profiles.loc[
         client_profiles["portfolio_id"] == portfolio_id
     ]
@@ -220,7 +263,7 @@ def _get_tax_rate(
             f"No client profile found for portfolio {portfolio_id}."
         )
 
-    return float(matching_profiles.iloc[0]["tax_bracket"])
+    return matching_profiles.iloc[0]
 
 
 def _add_threshold_context(
@@ -236,6 +279,33 @@ def _add_threshold_context(
     )
     result["threshold_severity"] = trigger_row["trigger_severity"]
     result["breach_ratio"] = float(trigger_row["breach_ratio"])
+
+    return result
+
+
+def _add_approval_and_audit_context(
+    trade_list: pd.DataFrame,
+    trigger_row: pd.Series,
+    client_profiles: pd.DataFrame,
+    portfolio_id: str,
+) -> pd.DataFrame:
+    """Add approval and audit fields not produced by trade modules."""
+
+    result = trade_list.copy()
+
+    result["prior_approval_required"] = (
+        _get_prior_approval_required(
+            client_profiles=client_profiles,
+            portfolio_id=portfolio_id,
+        )
+    )
+    result["final_trigger_type"] = str(
+        trigger_row["final_trigger_type"]
+    )
+    result["final_priority"] = str(trigger_row["final_priority"])
+    result["contributing_triggers"] = str(
+        trigger_row["contributing_triggers"]
+    )
 
     return result
 

@@ -47,12 +47,19 @@ def test_rebalance_pipeline_produces_final_trade_outputs(
     )
 
     expected_columns = {
+        "audit_id",
+        "audit_timestamp",
         "trade_value",
         "transaction_cost",
         "estimated_tax_liability",
         "client_explanation",
         "advisor_explanation",
         "compliance_explanation",
+        "approval_required",
+        "approval_status",
+        "approval_reason",
+        "final_trigger_type",
+        "final_priority",
     }
 
     assert not result.empty
@@ -63,3 +70,5 @@ def test_rebalance_pipeline_produces_final_trade_outputs(
     assert result["client_explanation"].str.len().gt(0).all()
     assert result["advisor_explanation"].str.len().gt(0).all()
     assert result["compliance_explanation"].str.len().gt(0).all()
+    assert result["approval_status"].notna().all()
+    assert result["audit_id"].str.startswith("AUD").all()

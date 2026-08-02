@@ -7,6 +7,14 @@ from typing import Protocol
 
 import pandas as pd
 
+from src.agents.explanation_agent import (
+    ExplanationAgent,
+    PortfolioExplanation,
+)
+from src.agents.portfolio_analyst_agent import (
+    PortfolioAnalystAgent,
+    PortfolioAnalysis,
+)
 from src.pipeline.rebalance_pipeline import (
     run_rebalance_pipeline,
 )
@@ -50,6 +58,28 @@ class RebalancePipelineProtocol(Protocol):
         ...
 
 
+class PortfolioAnalystProtocol(Protocol):
+    """Interface required from portfolio analysis agents."""
+
+    def analyze(
+        self,
+        trade_list: pd.DataFrame,
+    ) -> list[PortfolioAnalysis]:
+        """Analyze deterministic trade results."""
+        ...
+
+
+class ExplanationAgentProtocol(Protocol):
+    """Interface required from portfolio explanation agents."""
+
+    def explain(
+        self,
+        analyses: list[PortfolioAnalysis],
+    ) -> list[PortfolioExplanation]:
+        """Generate portfolio-level explanations."""
+        ...
+
+
 @dataclass(frozen=True)
 class OrchestratorRequest:
     """
@@ -76,6 +106,20 @@ class OrchestratorResponse:
     result: pd.DataFrame | None
 
 
+@dataclass(frozen=True)
+class OrchestratorExplanationResponse:
+    """
+    Structured output for end-to-end explained rebalance workflows.
+    """
+
+    status: AgentExecutionStatus
+    workflow_name: str
+    message: str
+    result: pd.DataFrame | None
+    analyses: list[PortfolioAnalysis] | None
+    explanations: list[PortfolioExplanation] | None
+
+
 class OrchestratorAgent:
     """
     Coordinate deterministic portfolio workflows.
@@ -92,6 +136,8 @@ class OrchestratorAgent:
         rebalance_pipeline: RebalancePipelineProtocol = (
             run_rebalance_pipeline
         ),
+        portfolio_analyst: PortfolioAnalystProtocol | None = None,
+        explanation_agent: ExplanationAgentProtocol | None = None,
     ) -> None:
         """
         Initialize the agent with a rebalance pipeline dependency.
@@ -103,6 +149,16 @@ class OrchestratorAgent:
         """
 
         self._rebalance_pipeline = rebalance_pipeline
+        self._portfolio_analyst = (
+            portfolio_analyst
+            if portfolio_analyst is not None
+            else PortfolioAnalystAgent()
+        )
+        self._explanation_agent = (
+            explanation_agent
+            if explanation_agent is not None
+            else ExplanationAgent()
+        )
 
     def execute_rebalance(
         self,
@@ -152,6 +208,77 @@ class OrchestratorAgent:
                 "successfully."
             ),
             result=result.copy(),
+        )
+
+    def execute_rebalance_with_explanations(
+        self,
+        request: OrchestratorRequest,
+    ) -> OrchestratorExplanationResponse:
+        """
+        Execute the rebalance pipeline and portfolio explanation flow.
+
+        This method preserves the existing execute_rebalance contract while
+        proving the connected runtime path:
+
+        pipeline -> portfolio analyst -> explanation agent -> optional LLM.
+        """
+
+        response = self.execute_rebalance(request)
+
+        if response.status is AgentExecutionStatus.FAILED:
+            return OrchestratorExplanationResponse(
+                status=response.status,
+                workflow_name=response.workflow_name,
+                message=response.message,
+                result=response.result,
+                analyses=None,
+                explanations=None,
+            )
+
+        if response.result is None or response.result.empty:
+            return OrchestratorExplanationResponse(
+                status=AgentExecutionStatus.SUCCESS,
+                workflow_name=self.WORKFLOW_NAME,
+                message=(
+                    "The portfolio rebalancing workflow completed "
+                    "successfully. No explanations were generated "
+                    "because no trades were produced."
+                ),
+                result=response.result,
+                analyses=[],
+                explanations=[],
+            )
+
+        try:
+            analyses = self._portfolio_analyst.analyze(
+                response.result
+            )
+            explanations = self._explanation_agent.explain(
+                analyses
+            )
+        except Exception as error:
+            return OrchestratorExplanationResponse(
+                status=AgentExecutionStatus.FAILED,
+                workflow_name=self.WORKFLOW_NAME,
+                message=(
+                    "The portfolio explanation workflow failed: "
+                    f"{error}"
+                ),
+                result=response.result,
+                analyses=None,
+                explanations=None,
+            )
+
+        return OrchestratorExplanationResponse(
+            status=AgentExecutionStatus.SUCCESS,
+            workflow_name=self.WORKFLOW_NAME,
+            message=(
+                "The portfolio rebalancing and explanation workflow "
+                "completed successfully."
+            ),
+            result=response.result.copy(),
+            analyses=list(analyses),
+            explanations=list(explanations),
         )
 
     @staticmethod
