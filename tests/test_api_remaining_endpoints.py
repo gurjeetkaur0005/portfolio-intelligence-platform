@@ -599,6 +599,43 @@ def test_openapi_contains_expected_routes_once() -> None:
     assert route_paths.count("/backtests/threshold-rebalancing") == 1
 
 
+def test_route_state_pollution_can_be_reproduced() -> None:
+    client.get("/openapi.json")
+
+    app.router.routes[:] = [
+        route
+        for route in app.router.routes
+        if route.path
+        in {
+            "/openapi.json",
+            "/docs",
+            "/docs/oauth2-redirect",
+            "/redoc",
+            "/health",
+        }
+    ]
+
+    route_paths = [
+        route.path
+        for route in app.routes
+        if hasattr(route, "methods")
+    ]
+
+    assert "/backtests/threshold-rebalancing" not in route_paths
+
+
+def test_api_route_state_is_intact_after_previous_test() -> None:
+    paths = client.get("/openapi.json").json()["paths"]
+    route_paths = [
+        route.path
+        for route in app.routes
+        if hasattr(route, "methods")
+    ]
+
+    assert "/backtests/threshold-rebalancing" in paths
+    assert route_paths.count("/backtests/threshold-rebalancing") == 1
+
+
 def test_llm_health_response_is_immutable() -> None:
     health = LlmHealthResponse(
         status="configured",
