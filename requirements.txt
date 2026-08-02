@@ -4,3 +4,4 @@ numpy==2.5.1
 pandas==3.0.3
 pytest==8.4.2
 ruff==0.15.9
+google-genai==2.16.0
