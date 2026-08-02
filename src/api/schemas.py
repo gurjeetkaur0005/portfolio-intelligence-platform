@@ -107,3 +107,31 @@ class ErrorResponse(BaseModel):
 
     error: str
     detail: str
+
+class PortfolioExplanationResponse(BaseModel):
+    """Represent one portfolio-level explanation package."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    portfolio_id: str
+    client_summary: str
+    advisor_summary: str
+    compliance_summary: str
+
+
+class RebalanceExplanationResponse(BaseModel):
+    """Represent a successful AI-assisted rebalance response."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    status: str
+    workflow_name: str
+    message: str
+    explanations: list[PortfolioExplanationResponse]
+    portfolio_count: int

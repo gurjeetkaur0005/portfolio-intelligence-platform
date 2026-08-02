@@ -15,6 +15,7 @@ from src.agents.portfolio_analyst_agent import (
     PortfolioAnalystAgent,
     PortfolioAnalysis,
 )
+from src.llm.language_model import LanguageModelProtocol
 from src.pipeline.rebalance_pipeline import (
     run_rebalance_pipeline,
 )
@@ -213,6 +214,7 @@ class OrchestratorAgent:
     def execute_rebalance_with_explanations(
         self,
         request: OrchestratorRequest,
+        language_model: LanguageModelProtocol | None = None,
     ) -> OrchestratorExplanationResponse:
         """
         Execute the rebalance pipeline and portfolio explanation flow.
@@ -253,7 +255,14 @@ class OrchestratorAgent:
             analyses = self._portfolio_analyst.analyze(
                 response.result
             )
-            explanations = self._explanation_agent.explain(
+            explanation_agent = self._explanation_agent
+
+            if language_model is not None:
+                explanation_agent = ExplanationAgent(
+                    language_model=language_model,
+                )
+
+            explanations = explanation_agent.explain(
                 analyses
             )
         except Exception as error:

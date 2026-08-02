@@ -7,6 +7,8 @@ from pydantic import ValidationError
 
 from src.api.schemas import (
     HealthResponse,
+    PortfolioExplanationResponse,
+    RebalanceExplanationResponse,
     RebalanceRequest,
 )
 
@@ -95,3 +97,65 @@ def test_request_is_immutable() -> None:
 
     with pytest.raises(ValidationError):
         request.portfolio_value = 10.0
+
+
+def test_portfolio_explanation_response_stores_summaries() -> None:
+    explanation = PortfolioExplanationResponse(
+        portfolio_id="P00001",
+        client_summary="Client explanation.",
+        advisor_summary="Advisor explanation.",
+        compliance_summary="Compliance explanation.",
+    )
+
+    assert explanation.portfolio_id == "P00001"
+    assert explanation.client_summary == "Client explanation."
+    assert explanation.advisor_summary == "Advisor explanation."
+    assert (
+        explanation.compliance_summary
+        == "Compliance explanation."
+    )
+
+
+def test_rebalance_explanation_response_stores_portfolios() -> None:
+    explanation = PortfolioExplanationResponse(
+        portfolio_id="P00001",
+        client_summary="Client explanation.",
+        advisor_summary="Advisor explanation.",
+        compliance_summary="Compliance explanation.",
+    )
+
+    response = RebalanceExplanationResponse(
+        status="success",
+        workflow_name="portfolio_rebalancing_with_explanations",
+        message="Workflow completed successfully.",
+        explanations=[explanation],
+        portfolio_count=1,
+    )
+
+    assert response.status == "success"
+    assert response.portfolio_count == 1
+    assert len(response.explanations) == 1
+    assert response.explanations[0].portfolio_id == "P00001"
+
+
+def test_explanation_response_is_immutable() -> None:
+    explanation = PortfolioExplanationResponse(
+        portfolio_id="P00001",
+        client_summary="Client explanation.",
+        advisor_summary="Advisor explanation.",
+        compliance_summary="Compliance explanation.",
+    )
+
+    with pytest.raises(ValidationError):
+        explanation.client_summary = "Changed explanation."
+
+
+def test_explanation_response_rejects_unknown_fields() -> None:
+    with pytest.raises(ValidationError):
+        PortfolioExplanationResponse(
+            portfolio_id="P00001",
+            client_summary="Client explanation.",
+            advisor_summary="Advisor explanation.",
+            compliance_summary="Compliance explanation.",
+            unknown_field="invalid",  # type: ignore[call-arg]
+        )
