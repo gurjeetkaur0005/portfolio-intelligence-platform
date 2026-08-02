@@ -13,6 +13,9 @@ from src.llm.prompt_builder import (
     PromptBuilder,
 )
 
+MIN_COMPLETE_SUMMARY_LENGTH = 40
+COMPLETE_SUMMARY_ENDINGS = (".", "!", "?")
+
 
 @dataclass(frozen=True, slots=True)
 class PortfolioExplanation:
@@ -135,12 +138,15 @@ def _build_portfolio_explanation(
     client_summary = _build_client_summary(analysis)
 
     if language_model is not None:
-        client_summary = _generate_llm_summary(
+        generated_summary = _try_generate_llm_summary(
             analysis=analysis,
             prompt_builder=prompt_builder,
             language_model=language_model,
             audience=PromptAudience.CLIENT,
         )
+
+        if _is_complete_summary(generated_summary):
+            client_summary = generated_summary
 
     return PortfolioExplanation(
         portfolio_id=analysis.portfolio_id,
@@ -148,6 +154,25 @@ def _build_portfolio_explanation(
         advisor_summary=_build_advisor_summary(analysis),
         compliance_summary=_build_compliance_summary(analysis),
     )
+
+
+def _try_generate_llm_summary(
+    analysis: PortfolioAnalysis,
+    prompt_builder: PromptBuilder,
+    language_model: LanguageModelProtocol,
+    audience: PromptAudience,
+) -> str:
+    """Generate an LLM summary, returning empty text on failure."""
+
+    try:
+        return _generate_llm_summary(
+            analysis=analysis,
+            prompt_builder=prompt_builder,
+            language_model=language_model,
+            audience=audience,
+        )
+    except Exception:
+        return ""
 
 
 def _generate_llm_summary(
@@ -165,6 +190,25 @@ def _generate_llm_summary(
     response = language_model.generate(request)
 
     return response.text
+
+
+def _is_complete_summary(
+    summary: str,
+) -> bool:
+    """Return whether generated client text is safe to show."""
+
+    if not isinstance(summary, str):
+        return False
+
+    normalized_summary = summary.strip()
+
+    if len(normalized_summary) < MIN_COMPLETE_SUMMARY_LENGTH:
+        return False
+
+    if not normalized_summary.endswith(COMPLETE_SUMMARY_ENDINGS):
+        return False
+
+    return True
 
 
 def _build_client_summary(
@@ -265,3 +309,63 @@ def _format_currency(
     """Format a monetary value for communication."""
 
     return f"${value:,.2f}"
+
+
+if __name__ == "__main__":
+    from src.agents.portfolio_analyst_agent import (
+        PortfolioAnalysis,
+    )
+    from src.llm.language_model_factory import (
+        LanguageModelProvider,
+        create_language_model,
+    )
+
+    sample_analysis = PortfolioAnalysis(
+        portfolio_id="PORTFOLIO-TEST-001",
+        rebalance_required=True,
+        highest_threshold_severity="high",
+        threshold_breached=True,
+        threshold_breach_count=2,
+        assets_to_buy=(
+            "fixed_income",
+            "international_equity",
+        ),
+        assets_to_sell=(
+            "domestic_equity",
+        ),
+        assets_to_hold=(
+            "cash",
+        ),
+        total_transaction_cost=125.50,
+        total_estimated_tax_liability=340.75,
+        client_explanations=(
+            "Domestic equity will be reduced.",
+            "Fixed income will be increased.",
+        ),
+        advisor_explanations=(
+            "Sell domestic equity.",
+            "Buy fixed income.",
+        ),
+        compliance_explanations=(
+            "Trade recommendations were generated "
+            "from deterministic financial outputs.",
+        ),
+    )
+
+    agent = ExplanationAgent(
+        language_model=create_language_model(
+            LanguageModelProvider.GEMINI
+        ),
+    )
+
+    results = agent.explain([sample_analysis])
+
+    for explanation in results:
+        print("\nCLIENT SUMMARY — GEMINI")
+        print(explanation.client_summary)
+
+        print("\nADVISOR SUMMARY — DETERMINISTIC")
+        print(explanation.advisor_summary)
+
+        print("\nCOMPLIANCE SUMMARY — DETERMINISTIC")
+        print(explanation.compliance_summary)

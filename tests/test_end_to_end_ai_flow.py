@@ -16,6 +16,19 @@ from src.llm.prompt_builder import PromptBuilder
 from src.optimization.optimization_models import OptimizationResult
 
 
+FAKE_LLM_SUMMARY = (
+    "Your portfolio has a recommended rebalance based only on the supplied "
+    "facts. The proposed update changes the asset mix while preserving the "
+    "deterministic trade, cost, and tax outputs."
+)
+
+FAKE_GEMINI_SUMMARY = (
+    "Your portfolio has a Gemini generated rebalance summary based only on "
+    "the supplied facts. The response is complete, plain text, and preserves "
+    "the deterministic recommendations."
+)
+
+
 class FakePortfolioOptimizer:
     """Optimizer stand-in for deterministic end-to-end integration."""
 
@@ -47,7 +60,7 @@ class FakeGeminiUsageMetadata:
 
 @dataclass
 class FakeGeminiResponse:
-    text: str | None = "Gemini generated client explanation."
+    text: str | None = FAKE_GEMINI_SUMMARY
     usage_metadata: FakeGeminiUsageMetadata | None = field(
         default_factory=FakeGeminiUsageMetadata
     )
@@ -90,7 +103,7 @@ def test_orchestrator_pipeline_agent_prompt_llm_flow(
 
     fake_model = FakeLanguageModel(
         responses=[
-            "AI generated client explanation.",
+            FAKE_LLM_SUMMARY,
         ]
     )
     explanation_agent = ExplanationAgent(
@@ -117,7 +130,7 @@ def test_orchestrator_pipeline_agent_prompt_llm_flow(
     assert len(response.explanations) == 1
     assert (
         response.explanations[0].client_summary
-        == "AI generated client explanation."
+        == FAKE_LLM_SUMMARY
     )
     assert fake_model.call_count == 1
     assert len(fake_model.requests) == 1
@@ -156,6 +169,6 @@ def test_orchestrator_pipeline_agent_prompt_gemini_flow(
     assert response.explanations is not None
     assert (
         response.explanations[0].client_summary
-        == "Gemini generated client explanation."
+        == FAKE_GEMINI_SUMMARY
     )
     assert gemini_models.call_count == 1

@@ -84,7 +84,7 @@ def test_string_audience_is_supported_for_simple_call() -> None:
     )
 
     assert isinstance(request, LanguageModelRequest)
-    assert request.max_output_tokens == 300
+    assert request.max_output_tokens == 1_200
 
 
 def test_temperature_is_zero() -> None:
@@ -99,9 +99,9 @@ def test_temperature_is_zero() -> None:
 @pytest.mark.parametrize(
     ("audience", "expected_tokens"),
     [
-        (PromptAudience.CLIENT, 300),
-        (PromptAudience.ADVISOR, 500),
-        (PromptAudience.COMPLIANCE, 500),
+        (PromptAudience.CLIENT, 1_200),
+        (PromptAudience.ADVISOR, 1_800),
+        (PromptAudience.COMPLIANCE, 1_800),
     ],
 )
 def test_correct_audience_specific_token_limit(
@@ -204,6 +204,28 @@ def test_grounding_instructions_are_included() -> None:
     assert "Do not calculate financial values" in combined_prompt
     assert "Do not provide new investment advice" in combined_prompt
     assert "If a fact is unavailable" in combined_prompt
+
+
+def test_client_prompt_contains_completion_and_format_rules() -> None:
+    request = PromptBuilder().build(
+        analysis=_build_analysis(),
+        audience=PromptAudience.CLIENT,
+    )
+
+    combined_prompt = (
+        f"{request.system_prompt}\n{request.user_prompt}"
+    )
+
+    assert "Write one complete paragraph" in combined_prompt
+    assert "plain text only" in combined_prompt
+    assert "Do not use Markdown" in combined_prompt
+    assert "headings" in combined_prompt
+    assert "bullet points" in combined_prompt
+    assert "bold text" in combined_prompt
+    assert "tables" in combined_prompt
+    assert "80 to 120 words" in combined_prompt
+    assert "Never stop in the middle of a sentence" in combined_prompt
+    assert "Never change recommendations" in combined_prompt
 
 
 def test_missing_asset_groups_render_as_none() -> None:

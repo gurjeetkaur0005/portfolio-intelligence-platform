@@ -15,6 +15,7 @@ from src.llm.language_model import (
 
 DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
 GEMINI_API_KEY_ENV = "GEMINI_API_KEY"
+LLM_DEBUG_ENV = "LLM_DEBUG"
 
 
 class GeminiResponseProtocol(Protocol):
@@ -90,6 +91,13 @@ class GeminiLanguageModel(LanguageModelProtocol):
                 "request must be a LanguageModelRequest."
             )
 
+        if _debug_enabled():
+            print("Gemini LanguageModelRequest:")
+            print(f"system_prompt={request.system_prompt!r}")
+            print(f"user_prompt={request.user_prompt!r}")
+            print(f"temperature={request.temperature!r}")
+            print(f"max_output_tokens={request.max_output_tokens!r}")
+
         try:
             response = self._client.models.generate_content(
                 model=self._model_name,
@@ -109,6 +117,14 @@ class GeminiLanguageModel(LanguageModelProtocol):
         input_tokens, output_tokens = _extract_token_counts(
             response
         )
+        finish_reason = _extract_finish_reason(response)
+
+        if _debug_enabled():
+            print(f"Gemini raw response.text={response.text!r}")
+            print(f"Gemini extracted response_text={response_text!r}")
+            print(f"Gemini input_tokens={input_tokens!r}")
+            print(f"Gemini output_tokens={output_tokens!r}")
+            print(f"Gemini finish_reason={finish_reason!r}")
 
         return LanguageModelResponse(
             text=response_text,
@@ -224,3 +240,28 @@ def _normalize_token_count(
         return None
 
     return value
+
+
+def _extract_finish_reason(
+    response: GeminiResponseProtocol,
+) -> str | None:
+    """Extract the first Gemini finish reason when available."""
+
+    candidates = getattr(response, "candidates", None)
+
+    if not candidates:
+        return None
+
+    first_candidate = candidates[0]
+    finish_reason = getattr(first_candidate, "finish_reason", None)
+
+    if finish_reason is None:
+        return None
+
+    return str(finish_reason)
+
+
+def _debug_enabled() -> bool:
+    """Return whether LLM request/response debugging is enabled."""
+
+    return os.getenv(LLM_DEBUG_ENV) == "1"

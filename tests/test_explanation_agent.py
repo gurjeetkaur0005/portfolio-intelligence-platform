@@ -4,6 +4,7 @@ import pytest
 
 from src.agents.explanation_agent import (
     ExplanationAgent,
+    _is_complete_summary,
 )
 from src.agents.portfolio_analyst_agent import (
     PortfolioAnalysis,
@@ -17,6 +18,17 @@ from src.llm.language_model import (
 from src.llm.prompt_builder import (
     PromptAudience,
     PromptBuilder,
+)
+
+
+COMPLETE_AI_SUMMARY = (
+    "Your portfolio has a recommended rebalance based only on the supplied "
+    "facts. The plan increases fixed income and reduces domestic equity, "
+    "while cash remains unchanged."
+)
+
+INCOMPLETE_AI_SUMMARY = (
+    "Here is an update regarding your portfolio. Portfolio"
 )
 
 
@@ -52,6 +64,20 @@ class FailingPromptBuilder(PromptBuilder):
         raise AssertionError(
             "PromptBuilder.build should not be called."
         )
+
+
+class FailingLanguageModel:
+    """Language model that simulates provider failure."""
+
+    def __init__(self) -> None:
+        self.call_count = 0
+
+    def generate(
+        self,
+        request: LanguageModelRequest,
+    ):
+        self.call_count += 1
+        raise RuntimeError("Gemini failed.")
 
 
 def _build_analysis() -> PortfolioAnalysis:
@@ -168,7 +194,7 @@ def test_empty_analysis_list_returns_empty_list() -> None:
 def test_constructor_works_with_prompt_builder_and_language_model() -> None:
     fake_model = FakeLanguageModel(
         responses=[
-            "AI generated explanation.",
+            COMPLETE_AI_SUMMARY,
         ]
     )
 
@@ -181,14 +207,14 @@ def test_constructor_works_with_prompt_builder_and_language_model() -> None:
         [_build_analysis()]
     )[0]
 
-    assert result.client_summary == "AI generated explanation."
+    assert result.client_summary == COMPLETE_AI_SUMMARY
 
 
 def test_prompt_builder_build_is_called_once_with_language_model() -> None:
     prompt_builder = RecordingPromptBuilder()
     fake_model = FakeLanguageModel(
         responses=[
-            "AI generated explanation.",
+            COMPLETE_AI_SUMMARY,
         ]
     )
     agent = ExplanationAgent(
@@ -207,7 +233,7 @@ def test_prompt_builder_build_is_called_once_with_language_model() -> None:
 def test_language_model_generate_is_called_once() -> None:
     fake_model = FakeLanguageModel(
         responses=[
-            "AI generated explanation.",
+            COMPLETE_AI_SUMMARY,
         ]
     )
     agent = ExplanationAgent(
@@ -225,7 +251,7 @@ def test_language_model_generate_is_called_once() -> None:
 def test_ai_response_replaces_only_client_summary() -> None:
     fake_model = FakeLanguageModel(
         responses=[
-            "AI generated explanation.",
+            COMPLETE_AI_SUMMARY,
         ]
     )
     agent = ExplanationAgent(
@@ -237,7 +263,7 @@ def test_ai_response_replaces_only_client_summary() -> None:
         [_build_analysis()]
     )[0]
 
-    assert result.client_summary == "AI generated explanation."
+    assert result.client_summary == COMPLETE_AI_SUMMARY
     assert "Threshold breach count: 2" in result.advisor_summary
     assert (
         "No financial calculations or trade decisions"
@@ -248,7 +274,7 @@ def test_ai_response_replaces_only_client_summary() -> None:
 def test_language_model_receives_prompt_builder_request() -> None:
     fake_model = FakeLanguageModel(
         responses=[
-            "AI generated explanation.",
+            COMPLETE_AI_SUMMARY,
         ]
     )
     agent = ExplanationAgent(
@@ -272,7 +298,7 @@ def test_language_model_path_does_not_mutate_analysis() -> None:
     original_analysis = _build_analysis()
     fake_model = FakeLanguageModel(
         responses=[
-            "AI generated explanation.",
+            COMPLETE_AI_SUMMARY,
         ]
     )
     agent = ExplanationAgent(
@@ -283,6 +309,78 @@ def test_language_model_path_does_not_mutate_analysis() -> None:
     agent.explain([analysis])
 
     assert analysis == original_analysis
+
+
+def test_incomplete_ai_response_uses_deterministic_fallback() -> None:
+    fake_model = FakeLanguageModel(
+        responses=[
+            INCOMPLETE_AI_SUMMARY,
+        ]
+    )
+    agent = ExplanationAgent(
+        prompt_builder=PromptBuilder(),
+        language_model=fake_model,
+    )
+
+    result = agent.explain(
+        [_build_analysis()]
+    )[0]
+
+    assert result.client_summary != INCOMPLETE_AI_SUMMARY
+    assert "requires rebalancing" in result.client_summary
+    assert fake_model.call_count == 1
+
+
+def test_language_model_exception_uses_deterministic_fallback() -> None:
+    failing_model = FailingLanguageModel()
+    agent = ExplanationAgent(
+        prompt_builder=PromptBuilder(),
+        language_model=failing_model,
+    )
+
+    result = agent.explain(
+        [_build_analysis()]
+    )[0]
+
+    assert "requires rebalancing" in result.client_summary
+    assert "fixed income" in result.client_summary
+    assert failing_model.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [
+        "",
+        "   ",
+        "Too short.",
+        INCOMPLETE_AI_SUMMARY,
+        "This summary ends with a comma,",
+    ],
+)
+def test_incomplete_summary_validation_rejects_bad_text(
+    summary: str,
+) -> None:
+    assert _is_complete_summary(summary) is False
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [
+        COMPLETE_AI_SUMMARY,
+        (
+            "This client summary is long enough to be useful and ends "
+            "with a complete question for the reader?"
+        ),
+        (
+            "This client summary is long enough to be useful and ends "
+            "with a complete exclamation for the reader!"
+        ),
+    ],
+)
+def test_complete_summary_validation_accepts_good_text(
+    summary: str,
+) -> None:
+    assert _is_complete_summary(summary) is True
 
 
 def test_non_list_input_raises_type_error() -> None:

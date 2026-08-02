@@ -19,9 +19,9 @@ class PromptAudience(StrEnum):
 
 
 TOKEN_LIMITS = {
-    PromptAudience.CLIENT: 300,
-    PromptAudience.ADVISOR: 500,
-    PromptAudience.COMPLIANCE: 500,
+    PromptAudience.CLIENT: 1_200,
+    PromptAudience.ADVISOR: 1_800,
+    PromptAudience.COMPLIANCE: 1_800,
 }
 
 GROUNDING_INSTRUCTIONS = (
@@ -124,8 +124,12 @@ def _build_system_prompt(
         return (
             "You are a careful financial communication assistant. "
             "Write in simple, client-friendly language. Avoid unnecessary "
-            "technical jargon. Explain the rebalance from the supplied "
-            f"facts only. {GROUNDING_INSTRUCTIONS}"
+            "technical jargon. Write one complete paragraph in plain text "
+            "only. Do not use Markdown, headings, bullet points, bold text, "
+            "or tables. Write approximately 80 to 120 words. Never stop in "
+            "the middle of a sentence. Explain the rebalance from the "
+            f"supplied facts only. {GROUNDING_INSTRUCTIONS} Never change "
+            "recommendations."
         )
 
     if audience is PromptAudience.ADVISOR:
@@ -160,8 +164,12 @@ def _build_user_prompt(
 
     if audience is PromptAudience.CLIENT:
         task = (
-            "Create a client-facing portfolio explanation. Use simple "
-            "language and do not add investment advice."
+            "Create a client-facing portfolio explanation. Write one "
+            "complete paragraph. Use plain text only. Do not use Markdown, "
+            "headings, bullet points, bold text, or tables. Write "
+            "approximately 80 to 120 words. Never stop in the middle of a "
+            "sentence. Use simple language and do not add investment "
+            "advice. Never change recommendations."
         )
     elif audience is PromptAudience.ADVISOR:
         task = (

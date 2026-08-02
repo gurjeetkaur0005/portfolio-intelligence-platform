@@ -22,10 +22,18 @@ class FakeUsageMetadata:
 
 
 @dataclass
+class FakeCandidate:
+    finish_reason: str | None = "STOP"
+
+
+@dataclass
 class FakeGeminiResponse:
     text: str | None
     usage_metadata: FakeUsageMetadata | None = (
         field(default_factory=FakeUsageMetadata)
+    )
+    candidates: list[FakeCandidate] = field(
+        default_factory=lambda: [FakeCandidate()]
     )
 
 
@@ -188,3 +196,24 @@ def test_gemini_requires_api_key_without_injected_client(
         match="Gemini API key must be supplied",
     ):
         GeminiLanguageModel()
+
+
+def test_gemini_debug_mode_prints_finish_reason(
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("LLM_DEBUG", "1")
+    models = FakeGeminiModels(
+        response=FakeGeminiResponse(
+            text="Generated response.",
+        )
+    )
+    model = GeminiLanguageModel(
+        api_key=None,
+        client=FakeGeminiClient(models=models),
+    )
+
+    model.generate(_build_request())
+
+    captured = capsys.readouterr()
+    assert "Gemini finish_reason='STOP'" in captured.out
