@@ -16,9 +16,6 @@ from src.database.models import (
     PortfolioModel,
     RebalanceRunModel,
 )
-from src.database.repositories import (
-    RecordNotFoundError,
-)
 
 
 class PortfolioRepositoryProtocol(Protocol):
