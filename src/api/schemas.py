@@ -105,8 +105,9 @@ class ErrorResponse(BaseModel):
         frozen=True,
     )
 
-    error: str
-    detail: str
+    code: str
+    message: str
+    status: int
 
 
 class PortfolioExplanationResponse(BaseModel):

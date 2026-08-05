@@ -356,7 +356,9 @@ def test_get_portfolio_returns_404() -> None:
 
     assert response.status_code == 404
     assert response.json() == {
-        "detail": "Portfolio 'MISSING' was not found.",
+        "code": "record_not_found",
+        "message": "Portfolio 'MISSING' was not found.",
+        "status": 404,
     }
 
 
@@ -419,7 +421,9 @@ def test_get_rebalance_returns_404() -> None:
 
     assert response.status_code == 404
     assert response.json() == {
-        "detail": "Rebalance run 'MISSING' was not found.",
+        "code": "record_not_found",
+        "message": "Rebalance run 'MISSING' was not found.",
+        "status": 404,
     }
 
 

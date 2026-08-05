@@ -74,7 +74,6 @@ from src.api.schemas import (
 from src.backtesting.strategy_comparison import (
     THRESHOLD_REBALANCING_NAME,
 )
-from src.database.repositories import RecordNotFoundError
 from src.llm.language_model import LanguageModelProtocol
 from src.llm.prompt_builder import PromptBuilder
 from src.services.rebalance_application_service import (
@@ -941,13 +940,7 @@ def get_portfolio_endpoint(
 ) -> PortfolioDetailResponse:
     """Return one persisted portfolio with holdings."""
 
-    try:
-        portfolio = service.get_portfolio(portfolio_id)
-    except RecordNotFoundError as error:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(error),
-        ) from error
+    portfolio = service.get_portfolio(portfolio_id)
 
     return _portfolio_detail_response(portfolio)
 
@@ -974,21 +967,15 @@ def list_portfolio_rebalances_endpoint(
 ) -> PortfolioRebalanceListResponse:
     """Return rebalance runs for one persisted portfolio."""
 
-    try:
-        page = service.list_portfolio_rebalances(
-            portfolio_id,
-            limit=limit,
-            offset=offset,
-        )
-        items = [
-            _rebalance_summary_response(rebalance)
-            for rebalance in page.items
-        ]
-    except RecordNotFoundError as error:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(error),
-        ) from error
+    page = service.list_portfolio_rebalances(
+        portfolio_id,
+        limit=limit,
+        offset=offset,
+    )
+    items = [
+        _rebalance_summary_response(rebalance)
+        for rebalance in page.items
+    ]
 
     return PortfolioRebalanceListResponse(
         items=items,
@@ -1011,13 +998,7 @@ def get_rebalance_endpoint(
 ) -> RebalanceRunDetailResponse:
     """Return one persisted rebalance run."""
 
-    try:
-        rebalance = service.get_rebalance(run_id)
-    except RecordNotFoundError as error:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(error),
-        ) from error
+    rebalance = service.get_rebalance(run_id)
 
     return _rebalance_detail_response(rebalance)
 
@@ -1044,21 +1025,15 @@ def list_rebalance_trades_endpoint(
 ) -> RebalanceTradeListResponse:
     """Return persisted trades for one rebalance run."""
 
-    try:
-        page = service.list_rebalance_trades(
-            run_id,
-            limit=limit,
-            offset=offset,
-        )
-        items = [
-            _rebalance_trade_response(trade)
-            for trade in page.items
-        ]
-    except RecordNotFoundError as error:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(error),
-        ) from error
+    page = service.list_rebalance_trades(
+        run_id,
+        limit=limit,
+        offset=offset,
+    )
+    items = [
+        _rebalance_trade_response(trade)
+        for trade in page.items
+    ]
 
     return RebalanceTradeListResponse(
         items=items,
@@ -1090,21 +1065,15 @@ def list_rebalance_audit_endpoint(
 ) -> RebalanceAuditResponse:
     """Return persisted audit entries for one rebalance run."""
 
-    try:
-        page = service.list_rebalance_audit(
-            run_id,
-            limit=limit,
-            offset=offset,
-        )
-        items = [
-            _rebalance_audit_entry_response(entry)
-            for entry in page.items
-        ]
-    except RecordNotFoundError as error:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(error),
-        ) from error
+    page = service.list_rebalance_audit(
+        run_id,
+        limit=limit,
+        offset=offset,
+    )
+    items = [
+        _rebalance_audit_entry_response(entry)
+        for entry in page.items
+    ]
 
     return RebalanceAuditResponse(
         items=items,
@@ -1139,11 +1108,6 @@ def rebalance_stored_portfolio(
                 str(request.transaction_cost_rate)
             ),
         )
-    except RecordNotFoundError as error:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(error),
-        ) from error
     except (
         RebalanceExecutionError,
         RebalancePersistenceError,

@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from src.api.schemas import (
+    ErrorResponse,
     HealthResponse,
     PortfolioExplanationResponse,
     RebalanceExplanationResponse,
@@ -24,6 +25,18 @@ def test_health_response_stores_expected_values() -> None:
         response.service
         == "portfolio-intelligence-platform"
     )
+
+
+def test_error_response_stores_safe_error_contract() -> None:
+    response = ErrorResponse(
+        code="record_not_found",
+        message="Portfolio was not found.",
+        status=404,
+    )
+
+    assert response.code == "record_not_found"
+    assert response.message == "Portfolio was not found."
+    assert response.status == 404
 
 
 def test_rebalance_request_uses_defaults() -> None:

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from time import perf_counter
-from typing import Callable, Awaitable
+from typing import Awaitable, Callable
 
 from fastapi import FastAPI, Request, Response
-from src.api.schemas import HealthResponse
 
+from src.api.exceptions import register_exception_handlers
 from src.api.routes import router
+from src.api.schemas import HealthResponse
 from src.utils.logger import get_logger
 
 
@@ -21,6 +22,7 @@ app = FastAPI(
     ),
 )
 
+register_exception_handlers(app)
 app.include_router(router)
 
 

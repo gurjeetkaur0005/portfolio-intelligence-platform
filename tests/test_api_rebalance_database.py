@@ -112,7 +112,9 @@ def test_database_rebalance_endpoint_returns_404_when_missing(
 
     assert response.status_code == 404
     assert response.json() == {
-        "detail": "Portfolio 'P404' was not found.",
+        "code": "record_not_found",
+        "message": "Portfolio 'P404' was not found.",
+        "status": 404,
     }
 
 
