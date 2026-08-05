@@ -1,5 +1,10 @@
 import pandas as pd
 
+from src.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
+
 
 def evaluate_threshold_triggers(
     drift_results: pd.DataFrame,
@@ -70,8 +75,11 @@ if __name__ == "__main__":
         "trigger_severity",
     ]
 
-    print(trigger_results[columns_to_display].head(10))
-
-    print("\nTrigger severity distribution:")
-    print(trigger_results["trigger_severity"].value_counts())
-    
+    logger.info(
+        "threshold_trigger_results_sample\n%s",
+        trigger_results[columns_to_display].head(10),
+    )
+    logger.info(
+        "trigger_severity_distribution\n%s",
+        trigger_results["trigger_severity"].value_counts(),
+    )

@@ -2,6 +2,11 @@ from datetime import date
 
 import pandas as pd
 
+from src.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
+
 
 def evaluate_calendar_triggers(
     portfolios: pd.DataFrame,
@@ -97,7 +102,11 @@ if __name__ == "__main__":
         "calendar_trigger_type",
     ]
 
-    print(calendar_results[columns_to_display].head())
-
-    print("\nCalendar trigger distribution:")
-    print(calendar_results["calendar_trigger_type"].value_counts())
+    logger.info(
+        "calendar_trigger_results_sample\n%s",
+        calendar_results[columns_to_display].head(),
+    )
+    logger.info(
+        "calendar_trigger_distribution\n%s",
+        calendar_results["calendar_trigger_type"].value_counts(),
+    )

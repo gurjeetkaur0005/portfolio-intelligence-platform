@@ -15,6 +15,10 @@ from src.database.models import (
     RebalanceRunModel,
     TradeModel,
 )
+from src.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 class RepositoryError(RuntimeError):
@@ -296,6 +300,11 @@ class PortfolioRepository:
             self._session.commit()
         except IntegrityError as error:
             self._session.rollback()
+            logger.exception(
+                "portfolio_repository_integrity_failure "
+                "model=%s",
+                type(model).__name__,
+            )
 
             raise DuplicateRecordError(
                 "The record violates a database "
@@ -303,6 +312,11 @@ class PortfolioRepository:
             ) from error
         except SQLAlchemyError as error:
             self._session.rollback()
+            logger.exception(
+                "portfolio_repository_database_failure "
+                "model=%s",
+                type(model).__name__,
+            )
 
             raise RepositoryError(
                 "The database operation failed."
@@ -359,6 +373,11 @@ class RebalanceRunRepository:
             self._session.commit()
         except IntegrityError as error:
             self._session.rollback()
+            logger.exception(
+                "rebalance_repository_integrity_failure "
+                "run_id=%s",
+                rebalance_run.run_id,
+            )
 
             raise DuplicateRecordError(
                 "The rebalance run violates a database "
@@ -366,6 +385,11 @@ class RebalanceRunRepository:
             ) from error
         except SQLAlchemyError as error:
             self._session.rollback()
+            logger.exception(
+                "rebalance_repository_database_failure "
+                "run_id=%s",
+                rebalance_run.run_id,
+            )
 
             raise RepositoryError(
                 "The rebalance run could not be saved."

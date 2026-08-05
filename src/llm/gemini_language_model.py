@@ -11,11 +11,14 @@ from src.llm.language_model import (
     LanguageModelRequest,
     LanguageModelResponse,
 )
+from src.utils.logger import get_logger
 
 
 DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
 GEMINI_API_KEY_ENV = "GEMINI_API_KEY"
 LLM_DEBUG_ENV = "LLM_DEBUG"
+
+logger = get_logger(__name__)
 
 
 class GeminiResponseProtocol(Protocol):
@@ -92,11 +95,15 @@ class GeminiLanguageModel(LanguageModelProtocol):
             )
 
         if _debug_enabled():
-            print("Gemini LanguageModelRequest:")
-            print(f"system_prompt={request.system_prompt!r}")
-            print(f"user_prompt={request.user_prompt!r}")
-            print(f"temperature={request.temperature!r}")
-            print(f"max_output_tokens={request.max_output_tokens!r}")
+            logger.info(
+                "gemini_request model=%s temperature=%s "
+                "max_output_tokens=%s system_prompt=%r user_prompt=%r",
+                self._model_name,
+                request.temperature,
+                request.max_output_tokens,
+                request.system_prompt,
+                request.user_prompt,
+            )
 
         try:
             response = self._client.models.generate_content(
@@ -109,6 +116,10 @@ class GeminiLanguageModel(LanguageModelProtocol):
                 ),
             )
         except Exception as error:
+            logger.exception(
+                "gemini_request_failed model=%s",
+                self._model_name,
+            )
             raise GeminiLanguageModelError(
                 "Gemini failed to generate a response."
             ) from error
@@ -120,11 +131,17 @@ class GeminiLanguageModel(LanguageModelProtocol):
         finish_reason = _extract_finish_reason(response)
 
         if _debug_enabled():
-            print(f"Gemini raw response.text={response.text!r}")
-            print(f"Gemini extracted response_text={response_text!r}")
-            print(f"Gemini input_tokens={input_tokens!r}")
-            print(f"Gemini output_tokens={output_tokens!r}")
-            print(f"Gemini finish_reason={finish_reason!r}")
+            logger.info(
+                "gemini_response model=%s input_tokens=%s "
+                "output_tokens=%s finish_reason=%s raw_text=%r "
+                "response_text=%r",
+                self._model_name,
+                input_tokens,
+                output_tokens,
+                finish_reason,
+                response.text,
+                response_text,
+            )
 
         return LanguageModelResponse(
             text=response_text,

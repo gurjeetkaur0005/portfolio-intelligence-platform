@@ -2,6 +2,10 @@ import numpy as np
 import pandas as pd
 
 from config.asset_classes import ASSET_CLASSES
+from src.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 def calculate_drift(portfolios: pd.DataFrame) -> pd.DataFrame:
@@ -79,7 +83,11 @@ if __name__ == "__main__":
         "requires_rebalancing",
     ]
 
-    print(drift_results[columns_to_display].head(10))
-
-    print("\nPortfolios requiring rebalancing:")
-    print(drift_results["requires_rebalancing"].value_counts())
+    logger.info(
+        "drift_results_sample\n%s",
+        drift_results[columns_to_display].head(10),
+    )
+    logger.info(
+        "portfolios_requiring_rebalancing\n%s",
+        drift_results["requires_rebalancing"].value_counts(),
+    )

@@ -2,6 +2,11 @@ from datetime import date
 
 import pandas as pd
 
+from src.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
+
 
 def evaluate_event_triggers(
     portfolios: pd.DataFrame,
@@ -114,7 +119,11 @@ if __name__ == "__main__":
         "event_priority",
     ]
 
-    print(event_results[columns_to_display].head())
-
-    print("\nEvent trigger distribution:")
-    print(event_results["event_trigger_type"].value_counts())
+    logger.info(
+        "event_trigger_results_sample\n%s",
+        event_results[columns_to_display].head(),
+    )
+    logger.info(
+        "event_trigger_distribution\n%s",
+        event_results["event_trigger_type"].value_counts(),
+    )

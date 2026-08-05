@@ -12,9 +12,12 @@ from src.llm.prompt_builder import (
     PromptAudience,
     PromptBuilder,
 )
+from src.utils.logger import get_logger
 
 MIN_COMPLETE_SUMMARY_LENGTH = 40
 COMPLETE_SUMMARY_ENDINGS = (".", "!", "?")
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +175,12 @@ def _try_generate_llm_summary(
             audience=audience,
         )
     except Exception:
+        logger.warning(
+            "llm_summary_fallback portfolio_id=%s audience=%s",
+            analysis.portfolio_id,
+            audience.value,
+            exc_info=True,
+        )
         return ""
 
 
@@ -361,11 +370,12 @@ if __name__ == "__main__":
     results = agent.explain([sample_analysis])
 
     for explanation in results:
-        print("\nCLIENT SUMMARY — GEMINI")
-        print(explanation.client_summary)
-
-        print("\nADVISOR SUMMARY — DETERMINISTIC")
-        print(explanation.advisor_summary)
-
-        print("\nCOMPLIANCE SUMMARY — DETERMINISTIC")
-        print(explanation.compliance_summary)
+        logger.info("client_summary_gemini\n%s", explanation.client_summary)
+        logger.info(
+            "advisor_summary_deterministic\n%s",
+            explanation.advisor_summary,
+        )
+        logger.info(
+            "compliance_summary_deterministic\n%s",
+            explanation.compliance_summary,
+        )

@@ -29,10 +29,12 @@ from src.pipeline.tax_adapter import (
 )
 from src.pipeline.trade_enrichment import enrich_trade_data
 from src.triggers.threshold_trigger import evaluate_threshold_triggers
+from src.utils.logger import get_logger
 
 
 ZERO_TOLERANCE = 1e-12
 FloatArray: TypeAlias = NDArray[np.float64]
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -971,16 +973,9 @@ if __name__ == "__main__":
         periods_per_year=12,
     )
 
-    print(result.portfolio_history)
-    print()
-    print(f"Total return: {result.total_return:.4f}")
-    print(
-        "Annualized return: "
-        f"{result.annualized_return:.4f}"
-    )
-    print(f"Volatility: {result.volatility:.4f}")
-    print(f"Sharpe ratio: {result.sharpe_ratio:.4f}")
-    print(
-        "Maximum drawdown: "
-        f"{result.maximum_drawdown:.4f}"
-    )
+    logger.info("portfolio_history\n%s", result.portfolio_history)
+    logger.info("total_return=%.4f", result.total_return)
+    logger.info("annualized_return=%.4f", result.annualized_return)
+    logger.info("volatility=%.4f", result.volatility)
+    logger.info("sharpe_ratio=%.4f", result.sharpe_ratio)
+    logger.info("maximum_drawdown=%.4f", result.maximum_drawdown)

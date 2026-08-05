@@ -18,6 +18,10 @@ from src.services.portfolio_input_adapter import (
     DeterministicPortfolioInput,
     PortfolioInputAdapter,
 )
+from src.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 class PortfolioRepositoryProtocol(Protocol):
@@ -199,6 +203,11 @@ class RebalanceApplicationService:
                 normalized_portfolio_id
             )
         )
+        logger.info(
+            "rebalance_start portfolio_id=%s run_id=%s",
+            normalized_portfolio_id,
+            normalized_run_id,
+        )
 
         deterministic_input = (
             self._portfolio_input_adapter.build_input(
@@ -233,16 +242,37 @@ class RebalanceApplicationService:
                 )
             )
         except Exception as error:
+            logger.exception(
+                "rebalance_persistence_failed portfolio_id=%s "
+                "run_id=%s",
+                normalized_portfolio_id,
+                normalized_run_id,
+            )
             raise RebalancePersistenceError(
                 "The rebalance workflow completed, but its "
                 "result could not be persisted."
             ) from error
 
         if persisted_run.id is None:
+            logger.error(
+                "rebalance_persistence_missing_database_id "
+                "portfolio_id=%s run_id=%s",
+                normalized_portfolio_id,
+                normalized_run_id,
+            )
             raise RebalancePersistenceError(
                 "The persisted rebalance run did not receive "
                 "a database identifier."
             )
+
+        logger.info(
+            "rebalance_complete portfolio_id=%s run_id=%s "
+            "database_run_id=%s trade_count=%s",
+            normalized_portfolio_id,
+            persisted_run.run_id,
+            persisted_run.id,
+            len(trade_results),
+        )
 
         return PersistedRebalanceResult(
             portfolio_id=normalized_portfolio_id,
@@ -280,6 +310,10 @@ def _execute_portfolio_engine(
             ),
         )
     except Exception as error:
+        logger.exception(
+            "rebalance_engine_failed portfolio_id=%s",
+            portfolio_id,
+        )
         raise RebalanceExecutionError(
             "The rebalance workflow could not be completed."
         ) from error

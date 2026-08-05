@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 import pytest
@@ -198,11 +199,12 @@ def test_gemini_requires_api_key_without_injected_client(
         GeminiLanguageModel()
 
 
-def test_gemini_debug_mode_prints_finish_reason(
+def test_gemini_debug_mode_logs_finish_reason(
     monkeypatch,
-    capsys,
+    caplog,
 ) -> None:
     monkeypatch.setenv("LLM_DEBUG", "1")
+    caplog.set_level(logging.INFO)
     models = FakeGeminiModels(
         response=FakeGeminiResponse(
             text="Generated response.",
@@ -215,5 +217,5 @@ def test_gemini_debug_mode_prints_finish_reason(
 
     model.generate(_build_request())
 
-    captured = capsys.readouterr()
-    assert "Gemini finish_reason='STOP'" in captured.out
+    assert "gemini_response" in caplog.text
+    assert "finish_reason=STOP" in caplog.text

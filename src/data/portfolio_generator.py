@@ -7,6 +7,10 @@ from config.asset_classes import ASSET_CLASSES
 from config.risk_categories import RISK_CATEGORIES
 from config.settings import RANDOM_SEED
 from src.data.client_profile_generator import generate_client_profiles
+from src.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 def generate_portfolios(
@@ -83,10 +87,11 @@ if __name__ == "__main__":
 
     portfolios = generate_portfolios(client_profiles)
 
-    print(portfolios.head())
-
-    print("\nRisk category distribution:")
-    print(portfolios["risk_category"].value_counts())
+    logger.info("portfolio_sample\n%s", portfolios.head())
+    logger.info(
+        "risk_category_distribution\n%s",
+        portfolios["risk_category"].value_counts(),
+    )
 
     current_columns = [
         f"current_{asset}"
@@ -97,8 +102,7 @@ if __name__ == "__main__":
 
     all_valid = allocation_sums.round(6).eq(1.0).all()
 
-    print("\nDo all current allocations sum to 100%?")
-    print(all_valid)
+    logger.info("current_allocations_sum_to_one=%s", all_valid)
 
     profiles_to_compare = client_profiles[
         ["portfolio_id", "risk_category"]
@@ -123,5 +127,4 @@ if __name__ == "__main__":
         == comparison["portfolio_risk_category"]
     ).all()
 
-    print("\nDo client and portfolio risk categories match?")
-    print(categories_match)
+    logger.info("client_portfolio_risk_categories_match=%s", categories_match)

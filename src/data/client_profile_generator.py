@@ -8,11 +8,14 @@ from config.settings import (
     NUMBER_OF_PORTFOLIOS,
     RANDOM_SEED,
 )
+from src.utils.logger import get_logger
 
 
 TAX_BRACKETS = [0.00, 0.20, 0.30]
 
 TAX_BRACKET_PROBABILITIES = [0.15, 0.35, 0.50]
+
+logger = get_logger(__name__)
 
 
 def generate_client_profiles(
@@ -129,15 +132,14 @@ def generate_client_profiles(
 if __name__ == "__main__":
     client_profiles = generate_client_profiles()
 
-    print(client_profiles.head())
-    print()
-    print("Shape:", client_profiles.shape)
-    print()
-    print("Risk category distribution:")
-    print(client_profiles["risk_category"].value_counts())
-    print()
-    print("Tax bracket distribution:")
-    print(client_profiles["tax_bracket"].value_counts())
-    print()
-    print("Missing values:")
-    print(client_profiles.isna().sum())
+    logger.info("client_profiles_sample\n%s", client_profiles.head())
+    logger.info("client_profiles_shape=%s", client_profiles.shape)
+    logger.info(
+        "risk_category_distribution\n%s",
+        client_profiles["risk_category"].value_counts(),
+    )
+    logger.info(
+        "tax_bracket_distribution\n%s",
+        client_profiles["tax_bracket"].value_counts(),
+    )
+    logger.info("missing_values\n%s", client_profiles.isna().sum())

@@ -6,6 +6,10 @@ from config.settings import (
     NUMBER_OF_TRADING_DAYS,
     RANDOM_SEED,
 )
+from src.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 # Expected yearly return and yearly volatility for each asset class.
@@ -101,11 +105,7 @@ def simulate_market_data(
 if __name__ == "__main__":
     market_data = simulate_market_data()
 
-    print(market_data.head())
-    print()
-    print(market_data.tail())
-    print()
-    print("Shape:", market_data.shape)
-    print()
-    print("Missing values:")
-    print(market_data.isna().sum())
+    logger.info("market_data_head\n%s", market_data.head())
+    logger.info("market_data_tail\n%s", market_data.tail())
+    logger.info("market_data_shape=%s", market_data.shape)
+    logger.info("missing_values\n%s", market_data.isna().sum())

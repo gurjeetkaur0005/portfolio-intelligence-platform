@@ -1,5 +1,7 @@
 import pandas as pd
 
+from src.utils.logger import get_logger
+
 
 PRIORITY_ORDER = {
     "none": 0,
@@ -8,6 +10,8 @@ PRIORITY_ORDER = {
     "high": 3,
     "critical": 4,
 }
+
+logger = get_logger(__name__)
 
 
 def consolidate_triggers(
@@ -193,15 +197,11 @@ if __name__ == "__main__":
         "contributing_triggers",
     ]
 
-    print(
-        consolidated_results[
-            columns_to_display
-        ].head(10)
+    logger.info(
+        "consolidated_trigger_results_sample\n%s",
+        consolidated_results[columns_to_display].head(10),
     )
-
-    print("\nFinal priority distribution:")
-    print(
-        consolidated_results[
-            "final_priority"
-        ].value_counts()
+    logger.info(
+        "final_priority_distribution\n%s",
+        consolidated_results["final_priority"].value_counts(),
     )
