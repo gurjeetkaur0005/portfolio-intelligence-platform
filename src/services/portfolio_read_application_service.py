@@ -16,7 +16,12 @@ from src.database.models import (
 class PortfolioReadRepositoryProtocol(Protocol):
     """Describe portfolio read operations."""
 
-    def list_portfolios(self) -> list[PortfolioModel]:
+    def list_portfolios(
+        self,
+        *,
+        limit: int,
+        offset: int,
+    ) -> list[PortfolioModel]:
         """Return all persisted portfolios."""
         ...
 
@@ -41,6 +46,9 @@ class RebalanceReadRepositoryProtocol(Protocol):
     def list_trades(
         self,
         run_id: str,
+        *,
+        limit: int,
+        offset: int,
     ) -> list[TradeModel]:
         """Return all trades for one rebalance run."""
         ...
@@ -48,8 +56,21 @@ class RebalanceReadRepositoryProtocol(Protocol):
     def list_by_portfolio_database_id(
         self,
         portfolio_database_id: int,
+        *,
+        limit: int,
+        offset: int,
     ) -> list[RebalanceRunModel]:
         """Return runs for one portfolio database ID."""
+        ...
+
+    def list_audit_records(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        offset: int,
+    ) -> list[AuditRecordModel]:
+        """Return audit records for one rebalance run."""
         ...
 
 
@@ -132,6 +153,16 @@ class RebalanceAuditEntry:
     audit_message: str
 
 
+@dataclass(frozen=True, slots=True)
+class PaginatedResult[T]:
+    """Represent one page of service results."""
+
+    items: list[T]
+    limit: int
+    offset: int
+    count: int
+
+
 class PortfolioReadApplicationService:
     """Coordinate read-only portfolio and rebalance queries."""
 
@@ -147,15 +178,27 @@ class PortfolioReadApplicationService:
 
     def list_portfolios(
         self,
-    ) -> list[PortfolioSummary]:
+        *,
+        limit: int,
+        offset: int,
+    ) -> PaginatedResult[PortfolioSummary]:
         """Return summaries for all portfolios."""
 
-        return [
+        items = [
             _portfolio_summary(portfolio)
             for portfolio in (
-                self._portfolio_repository.list_portfolios()
+                self._portfolio_repository.list_portfolios(
+                    limit=limit,
+                    offset=offset,
+                )
             )
         ]
+
+        return _paginated_result(
+            items=items,
+            limit=limit,
+            offset=offset,
+        )
 
     def get_portfolio(
         self,
@@ -175,7 +218,10 @@ class PortfolioReadApplicationService:
     def list_portfolio_rebalances(
         self,
         portfolio_id: str,
-    ) -> list[RebalanceRunSummary]:
+        *,
+        limit: int,
+        offset: int,
+    ) -> PaginatedResult[RebalanceRunSummary]:
         """Return rebalance summaries for one portfolio."""
 
         portfolio = (
@@ -191,14 +237,22 @@ class PortfolioReadApplicationService:
                 _required_database_id(
                     portfolio.id,
                     "portfolio",
-                )
+                ),
+                limit=limit,
+                offset=offset,
             )
         )
 
-        return [
+        items = [
             _rebalance_run_summary(run)
             for run in runs
         ]
+
+        return _paginated_result(
+            items=items,
+            limit=limit,
+            offset=offset,
+        )
 
     def get_rebalance(
         self,
@@ -215,42 +269,53 @@ class PortfolioReadApplicationService:
     def list_rebalance_trades(
         self,
         run_id: str,
-    ) -> list[RebalanceTradeDetail]:
+        *,
+        limit: int,
+        offset: int,
+    ) -> PaginatedResult[RebalanceTradeDetail]:
         """Return all trades for one rebalance run."""
 
-        self._rebalance_repository.require_by_run_id(
-            run_id
-        )
-
-        return [
+        items = [
             _rebalance_trade_detail(trade)
             for trade in self._rebalance_repository.list_trades(
-                run_id
+                run_id,
+                limit=limit,
+                offset=offset,
             )
         ]
+
+        return _paginated_result(
+            items=items,
+            limit=limit,
+            offset=offset,
+        )
 
     def list_rebalance_audit(
         self,
         run_id: str,
-    ) -> list[RebalanceAuditEntry]:
+        *,
+        limit: int,
+        offset: int,
+    ) -> PaginatedResult[RebalanceAuditEntry]:
         """Return audit entries for one rebalance run."""
 
-        run = self._rebalance_repository.require_by_run_id(
-            run_id
-        )
-
-        return [
-            _rebalance_audit_entry(
-                audit_record=trade.audit_record,
-                approval_status=(
-                    trade.approval.approval_status
-                    if trade.approval is not None
-                    else None
-                ),
+        audit_records = (
+            self._rebalance_repository.list_audit_records(
+                run_id,
+                limit=limit,
+                offset=offset,
             )
-            for trade in run.trades
-            if trade.audit_record is not None
+        )
+        items = [
+            _rebalance_audit_entry(audit_record)
+            for audit_record in audit_records
         ]
+
+        return _paginated_result(
+            items=items,
+            limit=limit,
+            offset=offset,
+        )
 
 
 def _portfolio_summary(
@@ -339,21 +404,36 @@ def _rebalance_trade_detail(
 
 
 def _rebalance_audit_entry(
-    *,
-    audit_record: AuditRecordModel | None,
-    approval_status: str | None,
+    audit_record: AuditRecordModel,
 ) -> RebalanceAuditEntry:
     """Build a rebalance audit DTO."""
 
-    if audit_record is None:
-        raise ValueError(
-            "audit_record must not be None."
-        )
+    approval = audit_record.trade.approval
 
     return RebalanceAuditEntry(
-        approval_status=approval_status,
+        approval_status=(
+            approval.approval_status
+            if approval is not None
+            else None
+        ),
         timestamp=audit_record.audit_timestamp,
         audit_message=audit_record.details,
+    )
+
+
+def _paginated_result[T](
+    *,
+    items: list[T],
+    limit: int,
+    offset: int,
+) -> PaginatedResult[T]:
+    """Build a page result without a total-count query."""
+
+    return PaginatedResult(
+        items=items,
+        limit=limit,
+        offset=offset,
+        count=len(items),
     )
 
 

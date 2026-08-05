@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 from src.database.models import (
+    AuditRecordModel,
     ClientModel,
     PortfolioHoldingModel,
     PortfolioModel,
@@ -198,8 +199,13 @@ class PortfolioRepository:
 
     def list_portfolios(
         self,
+        *,
+        limit: int,
+        offset: int,
     ) -> list[PortfolioModel]:
         """Return all portfolios with their clients."""
+
+        _validate_pagination(limit=limit, offset=offset)
 
         statement = (
             select(PortfolioModel)
@@ -209,9 +215,10 @@ class PortfolioRepository:
                 )
             )
             .order_by(
-                PortfolioModel.created_at,
                 PortfolioModel.portfolio_id,
             )
+            .limit(limit)
+            .offset(offset)
         )
 
         return list(
@@ -426,18 +433,46 @@ class RebalanceRunRepository:
     def list_trades(
         self,
         run_id: str,
+        *,
+        limit: int,
+        offset: int,
     ) -> list[TradeModel]:
         """Return all trades belonging to one rebalance run."""
 
         rebalance_run = self.require_by_run_id(
             run_id
         )
+        _validate_pagination(limit=limit, offset=offset)
 
-        return list(rebalance_run.trades)
+        statement = (
+            select(TradeModel)
+            .where(
+                TradeModel.rebalance_run_id
+                == rebalance_run.id
+            )
+            .options(
+                selectinload(
+                    TradeModel.approval
+                ),
+                selectinload(
+                    TradeModel.audit_record
+                ),
+            )
+            .order_by(TradeModel.id)
+            .limit(limit)
+            .offset(offset)
+        )
+
+        return list(
+            self._session.scalars(statement).all()
+        )
 
     def list_by_portfolio_database_id(
         self,
         portfolio_database_id: int,
+        *,
+        limit: int,
+        offset: int,
     ) -> list[RebalanceRunModel]:
         """Return rebalance runs for one database portfolio ID."""
 
@@ -445,6 +480,7 @@ class RebalanceRunRepository:
             raise TypeError(
                 "portfolio_database_id must be an integer."
             )
+        _validate_pagination(limit=limit, offset=offset)
 
         statement = (
             select(RebalanceRunModel)
@@ -461,6 +497,48 @@ class RebalanceRunRepository:
                 RebalanceRunModel.started_at.desc(),
                 RebalanceRunModel.run_id,
             )
+            .limit(limit)
+            .offset(offset)
+        )
+
+        return list(
+            self._session.scalars(statement).all()
+        )
+
+    def list_audit_records(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        offset: int,
+    ) -> list[AuditRecordModel]:
+        """Return audit records for one rebalance run."""
+
+        rebalance_run = self.require_by_run_id(
+            run_id
+        )
+        _validate_pagination(limit=limit, offset=offset)
+
+        statement = (
+            select(AuditRecordModel)
+            .join(TradeModel)
+            .where(
+                TradeModel.rebalance_run_id
+                == rebalance_run.id
+            )
+            .options(
+                selectinload(
+                    AuditRecordModel.trade
+                ).selectinload(
+                    TradeModel.approval
+                )
+            )
+            .order_by(
+                AuditRecordModel.audit_timestamp.desc(),
+                AuditRecordModel.id.desc(),
+            )
+            .limit(limit)
+            .offset(offset)
         )
 
         return list(
@@ -511,6 +589,28 @@ def _validate_positive_decimal(
         )
 
     return value
+
+
+def _validate_pagination(
+    *,
+    limit: int,
+    offset: int,
+) -> None:
+    """Validate repository pagination controls."""
+
+    if not isinstance(limit, int):
+        raise TypeError("limit must be an integer.")
+
+    if not isinstance(offset, int):
+        raise TypeError("offset must be an integer.")
+
+    if limit < 1:
+        raise ValueError("limit must be greater than zero.")
+
+    if offset < 0:
+        raise ValueError(
+            "offset must be greater than or equal to zero."
+        )
 
 
 def _validate_currency(

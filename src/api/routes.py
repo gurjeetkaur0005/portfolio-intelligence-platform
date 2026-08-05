@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from src.agents.explanation_agent import ExplanationAgent
@@ -87,6 +87,10 @@ from src.services.portfolio_read_application_service import (
 )
 
 router = APIRouter()
+
+DEFAULT_PAGE_LIMIT = 20
+MAX_PAGE_LIMIT = 50
+DEFAULT_PAGE_OFFSET = 0
 
 
 @router.post(
@@ -892,20 +896,35 @@ def preview_prompt_endpoint(
     tags=["Portfolios"],
 )
 def list_portfolios_endpoint(
+    limit: int = Query(
+        default=DEFAULT_PAGE_LIMIT,
+        ge=1,
+        le=MAX_PAGE_LIMIT,
+    ),
+    offset: int = Query(
+        default=DEFAULT_PAGE_OFFSET,
+        ge=0,
+    ),
     service: PortfolioReadApplicationService = Depends(
         get_portfolio_read_application_service
     ),
 ) -> PortfolioListResponse:
     """Return all persisted portfolios."""
 
-    portfolios = [
+    page = service.list_portfolios(
+        limit=limit,
+        offset=offset,
+    )
+    items = [
         _portfolio_summary_response(portfolio)
-        for portfolio in service.list_portfolios()
+        for portfolio in page.items
     ]
 
     return PortfolioListResponse(
-        portfolios=portfolios,
-        portfolio_count=len(portfolios),
+        items=items,
+        limit=page.limit,
+        offset=page.offset,
+        count=page.count,
     )
 
 
@@ -940,6 +959,15 @@ def get_portfolio_endpoint(
 )
 def list_portfolio_rebalances_endpoint(
     portfolio_id: str,
+    limit: int = Query(
+        default=DEFAULT_PAGE_LIMIT,
+        ge=1,
+        le=MAX_PAGE_LIMIT,
+    ),
+    offset: int = Query(
+        default=DEFAULT_PAGE_OFFSET,
+        ge=0,
+    ),
     service: PortfolioReadApplicationService = Depends(
         get_portfolio_read_application_service
     ),
@@ -947,13 +975,14 @@ def list_portfolio_rebalances_endpoint(
     """Return rebalance runs for one persisted portfolio."""
 
     try:
-        rebalances = [
+        page = service.list_portfolio_rebalances(
+            portfolio_id,
+            limit=limit,
+            offset=offset,
+        )
+        items = [
             _rebalance_summary_response(rebalance)
-            for rebalance in (
-                service.list_portfolio_rebalances(
-                    portfolio_id
-                )
-            )
+            for rebalance in page.items
         ]
     except RecordNotFoundError as error:
         raise HTTPException(
@@ -962,9 +991,10 @@ def list_portfolio_rebalances_endpoint(
         ) from error
 
     return PortfolioRebalanceListResponse(
-        portfolio_id=portfolio_id,
-        rebalances=rebalances,
-        rebalance_count=len(rebalances),
+        items=items,
+        limit=page.limit,
+        offset=page.offset,
+        count=page.count,
     )
 
 
@@ -999,6 +1029,15 @@ def get_rebalance_endpoint(
 )
 def list_rebalance_trades_endpoint(
     run_id: str,
+    limit: int = Query(
+        default=DEFAULT_PAGE_LIMIT,
+        ge=1,
+        le=MAX_PAGE_LIMIT,
+    ),
+    offset: int = Query(
+        default=DEFAULT_PAGE_OFFSET,
+        ge=0,
+    ),
     service: PortfolioReadApplicationService = Depends(
         get_portfolio_read_application_service
     ),
@@ -1006,11 +1045,14 @@ def list_rebalance_trades_endpoint(
     """Return persisted trades for one rebalance run."""
 
     try:
-        trades = [
+        page = service.list_rebalance_trades(
+            run_id,
+            limit=limit,
+            offset=offset,
+        )
+        items = [
             _rebalance_trade_response(trade)
-            for trade in service.list_rebalance_trades(
-                run_id
-            )
+            for trade in page.items
         ]
     except RecordNotFoundError as error:
         raise HTTPException(
@@ -1019,9 +1061,10 @@ def list_rebalance_trades_endpoint(
         ) from error
 
     return RebalanceTradeListResponse(
-        run_id=run_id,
-        trades=trades,
-        trade_count=len(trades),
+        items=items,
+        limit=page.limit,
+        offset=page.offset,
+        count=page.count,
     )
 
 
@@ -1032,6 +1075,15 @@ def list_rebalance_trades_endpoint(
 )
 def list_rebalance_audit_endpoint(
     run_id: str,
+    limit: int = Query(
+        default=DEFAULT_PAGE_LIMIT,
+        ge=1,
+        le=MAX_PAGE_LIMIT,
+    ),
+    offset: int = Query(
+        default=DEFAULT_PAGE_OFFSET,
+        ge=0,
+    ),
     service: PortfolioReadApplicationService = Depends(
         get_portfolio_read_application_service
     ),
@@ -1039,11 +1091,14 @@ def list_rebalance_audit_endpoint(
     """Return persisted audit entries for one rebalance run."""
 
     try:
-        audit_entries = [
+        page = service.list_rebalance_audit(
+            run_id,
+            limit=limit,
+            offset=offset,
+        )
+        items = [
             _rebalance_audit_entry_response(entry)
-            for entry in service.list_rebalance_audit(
-                run_id
-            )
+            for entry in page.items
         ]
     except RecordNotFoundError as error:
         raise HTTPException(
@@ -1052,9 +1107,10 @@ def list_rebalance_audit_endpoint(
         ) from error
 
     return RebalanceAuditResponse(
-        run_id=run_id,
-        audit_entries=audit_entries,
-        audit_count=len(audit_entries),
+        items=items,
+        limit=page.limit,
+        offset=page.offset,
+        count=page.count,
     )
 
 

@@ -544,8 +544,10 @@ class PortfolioListResponse(BaseModel):
         frozen=True,
     )
 
-    portfolios: list[PortfolioSummaryResponse]
-    portfolio_count: int
+    items: list[PortfolioSummaryResponse]
+    limit: int
+    offset: int
+    count: int
 
 
 class PortfolioHoldingResponse(BaseModel):
@@ -601,9 +603,10 @@ class PortfolioRebalanceListResponse(BaseModel):
         frozen=True,
     )
 
-    portfolio_id: str
-    rebalances: list[RebalanceRunSummaryResponse]
-    rebalance_count: int
+    items: list[RebalanceRunSummaryResponse]
+    limit: int
+    offset: int
+    count: int
 
 
 class RebalanceRunDetailResponse(BaseModel):
@@ -650,9 +653,10 @@ class RebalanceTradeListResponse(BaseModel):
         frozen=True,
     )
 
-    run_id: str
-    trades: list[RebalanceTradeResponse]
-    trade_count: int
+    items: list[RebalanceTradeResponse]
+    limit: int
+    offset: int
+    count: int
 
 
 class RebalanceAuditEntryResponse(BaseModel):
@@ -676,6 +680,7 @@ class RebalanceAuditResponse(BaseModel):
         frozen=True,
     )
 
-    run_id: str
-    audit_entries: list[RebalanceAuditEntryResponse]
-    audit_count: int
+    items: list[RebalanceAuditEntryResponse]
+    limit: int
+    offset: int
+    count: int

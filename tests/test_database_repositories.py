@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -206,6 +207,36 @@ def test_repository_creates_portfolio(
     assert portfolio.currency == "USD"
 
 
+def test_repository_lists_portfolios_with_pagination(
+    database_session: Session,
+) -> None:
+    repository = PortfolioRepository(
+        database_session
+    )
+    client = repository.create_client(
+        client_id="C00001",
+        risk_category="balanced",
+    )
+    repository.create_portfolio(
+        client=client,
+        portfolio_id="P00002",
+        portfolio_value=Decimal("1000000.00"),
+    )
+    repository.create_portfolio(
+        client=client,
+        portfolio_id="P00001",
+        portfolio_value=Decimal("1000000.00"),
+    )
+
+    portfolios = repository.list_portfolios(
+        limit=1,
+        offset=1,
+    )
+
+    assert len(portfolios) == 1
+    assert portfolios[0].portfolio_id == "P00002"
+
+
 def test_repository_replaces_holdings(
     database_session: Session,
 ) -> None:
@@ -345,11 +376,194 @@ def test_rebalance_repository_lists_trades(
     )
 
     trades = repository.list_trades(
-        "RUN000001"
+        "RUN000001",
+        limit=20,
+        offset=0,
     )
 
     assert len(trades) == 1
     assert trades[0].asset == "domestic_equity"
+
+
+def test_rebalance_repository_lists_runs_newest_first(
+    database_session: Session,
+) -> None:
+    portfolio_repository = PortfolioRepository(
+        database_session
+    )
+    client = portfolio_repository.create_client(
+        client_id="C00001",
+        risk_category="balanced",
+    )
+    portfolio = portfolio_repository.create_portfolio(
+        client=client,
+        portfolio_id="P00001",
+        portfolio_value=Decimal("1000000.00"),
+    )
+    older_run = RebalanceRunModel(
+        run_id="RUN000001",
+        status="success",
+        portfolio_value=Decimal("1000000.00"),
+        transaction_cost_rate=Decimal("0.0020000000"),
+        started_at=datetime(
+            2026,
+            8,
+            1,
+            tzinfo=timezone.utc,
+        ),
+    )
+    newer_run = RebalanceRunModel(
+        run_id="RUN000002",
+        status="success",
+        portfolio_value=Decimal("1000000.00"),
+        transaction_cost_rate=Decimal("0.0020000000"),
+        started_at=datetime(
+            2026,
+            8,
+            2,
+            tzinfo=timezone.utc,
+        ),
+    )
+    portfolio.rebalance_runs.extend(
+        [
+            older_run,
+            newer_run,
+        ]
+    )
+    database_session.commit()
+    repository = RebalanceRunRepository(
+        database_session
+    )
+
+    runs = repository.list_by_portfolio_database_id(
+        portfolio.id,
+        limit=1,
+        offset=0,
+    )
+
+    assert len(runs) == 1
+    assert runs[0].run_id == "RUN000002"
+
+
+def test_rebalance_repository_lists_trades_with_stable_order(
+    database_session: Session,
+) -> None:
+    portfolio_repository = PortfolioRepository(
+        database_session
+    )
+    client = portfolio_repository.create_client(
+        client_id="C00001",
+        risk_category="balanced",
+    )
+    portfolio = portfolio_repository.create_portfolio(
+        client=client,
+        portfolio_id="P00001",
+        portfolio_value=Decimal("1000000.00"),
+    )
+    run = _build_rebalance_run(portfolio)
+    run.trades.append(
+        TradeModel(
+            asset="fixed_income",
+            action="BUY",
+            current_weight=Decimal("0.3000000000"),
+            trade_weight=Decimal("0.0200000000"),
+            post_trade_weight=Decimal("0.3200000000"),
+            trade_value=Decimal("20000.00"),
+            transaction_cost=Decimal("40.00"),
+            estimated_tax_liability=Decimal("0.00"),
+            threshold_breached=True,
+            threshold_severity="high",
+            breach_ratio=Decimal("1.5000000000"),
+            final_trigger_type="threshold",
+            final_priority="high",
+            contributing_triggers="threshold",
+            client_explanation="Client explanation.",
+            advisor_explanation="Advisor explanation.",
+            compliance_explanation="Compliance explanation.",
+        )
+    )
+    repository = RebalanceRunRepository(
+        database_session
+    )
+    repository.save_rebalance_run(run)
+
+    trades = repository.list_trades(
+        "RUN000001",
+        limit=1,
+        offset=1,
+    )
+
+    assert len(trades) == 1
+    assert trades[0].asset == "fixed_income"
+
+
+def test_rebalance_repository_lists_audit_newest_first(
+    database_session: Session,
+) -> None:
+    portfolio_repository = PortfolioRepository(
+        database_session
+    )
+    client = portfolio_repository.create_client(
+        client_id="C00001",
+        risk_category="balanced",
+    )
+    portfolio = portfolio_repository.create_portfolio(
+        client=client,
+        portfolio_id="P00001",
+        portfolio_value=Decimal("1000000.00"),
+    )
+    run = _build_rebalance_run(portfolio)
+    assert run.trades[0].audit_record is not None
+    run.trades[0].audit_record.audit_timestamp = datetime(
+        2026,
+        8,
+        1,
+        tzinfo=timezone.utc,
+    )
+    second_trade = TradeModel(
+        asset="fixed_income",
+        action="BUY",
+        current_weight=Decimal("0.3000000000"),
+        trade_weight=Decimal("0.0200000000"),
+        post_trade_weight=Decimal("0.3200000000"),
+        trade_value=Decimal("20000.00"),
+        transaction_cost=Decimal("40.00"),
+        estimated_tax_liability=Decimal("0.00"),
+        threshold_breached=True,
+        threshold_severity="high",
+        breach_ratio=Decimal("1.5000000000"),
+        final_trigger_type="threshold",
+        final_priority="high",
+        contributing_triggers="threshold",
+        client_explanation="Client explanation.",
+        advisor_explanation="Advisor explanation.",
+        compliance_explanation="Compliance explanation.",
+    )
+    second_trade.audit_record = AuditRecordModel(
+        audit_id="AUD000002",
+        audit_timestamp=datetime(
+            2026,
+            8,
+            2,
+            tzinfo=timezone.utc,
+        ),
+        event_type="TRADE_RECOMMENDATION",
+        details="Second trade recorded.",
+    )
+    run.trades.append(second_trade)
+    repository = RebalanceRunRepository(
+        database_session
+    )
+    repository.save_rebalance_run(run)
+
+    audit_records = repository.list_audit_records(
+        "RUN000001",
+        limit=1,
+        offset=0,
+    )
+
+    assert len(audit_records) == 1
+    assert audit_records[0].audit_id == "AUD000002"
 
 
 def test_invalid_currency_is_rejected(

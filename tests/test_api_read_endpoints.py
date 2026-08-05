@@ -14,6 +14,7 @@ from src.api.main import app
 from src.api.schemas import PortfolioSummaryResponse
 from src.database.repositories import RecordNotFoundError
 from src.services.portfolio_read_application_service import (
+    PaginatedResult,
     PortfolioDetail,
     PortfolioHolding,
     PortfolioSummary,
@@ -48,21 +49,43 @@ class FakePortfolioReadService:
         self.missing = missing
         self.empty = empty
         self.called = False
+        self.limit: int | None = None
+        self.offset: int | None = None
 
-    def list_portfolios(self) -> list[PortfolioSummary]:
+    def list_portfolios(
+        self,
+        *,
+        limit: int,
+        offset: int,
+    ) -> PaginatedResult[PortfolioSummary]:
         self.called = True
+        self.limit = limit
+        self.offset = offset
 
         if self.empty:
-            return []
+            return PaginatedResult(
+                items=[],
+                limit=limit,
+                offset=offset,
+                count=0,
+            )
 
-        return [
+        items = [
             PortfolioSummary(
-                portfolio_id="P00001",
-                client_id="C00001",
+                portfolio_id=f"P{index:05d}",
+                client_id=f"C{index:05d}",
                 portfolio_value=Decimal("1000000.00"),
                 currency="USD",
             )
+            for index in range(offset + 1, offset + limit + 1)
         ]
+
+        return PaginatedResult(
+            items=items,
+            limit=limit,
+            offset=offset,
+            count=len(items),
+        )
 
     def get_portfolio(
         self,
@@ -93,8 +116,13 @@ class FakePortfolioReadService:
     def list_portfolio_rebalances(
         self,
         portfolio_id: str,
-    ) -> list[RebalanceRunSummary]:
+        *,
+        limit: int,
+        offset: int,
+    ) -> PaginatedResult[RebalanceRunSummary]:
         self.called = True
+        self.limit = limit
+        self.offset = offset
 
         if self.missing:
             raise RecordNotFoundError(
@@ -102,9 +130,14 @@ class FakePortfolioReadService:
             )
 
         if self.empty:
-            return []
+            return PaginatedResult(
+                items=[],
+                limit=limit,
+                offset=offset,
+                count=0,
+            )
 
-        return [
+        items = [
             RebalanceRunSummary(
                 run_id="RUN000001",
                 status="success",
@@ -113,6 +146,13 @@ class FakePortfolioReadService:
                 portfolio_value=Decimal("1000000.00"),
             )
         ]
+
+        return PaginatedResult(
+            items=items,
+            limit=limit,
+            offset=offset,
+            count=len(items),
+        )
 
     def get_rebalance(
         self,
@@ -141,8 +181,13 @@ class FakePortfolioReadService:
     def list_rebalance_trades(
         self,
         run_id: str,
-    ) -> list[RebalanceTradeDetail]:
+        *,
+        limit: int,
+        offset: int,
+    ) -> PaginatedResult[RebalanceTradeDetail]:
         self.called = True
+        self.limit = limit
+        self.offset = offset
 
         if self.missing:
             raise RecordNotFoundError(
@@ -150,9 +195,14 @@ class FakePortfolioReadService:
             )
 
         if self.empty:
-            return []
+            return PaginatedResult(
+                items=[],
+                limit=limit,
+                offset=offset,
+                count=0,
+            )
 
-        return [
+        items = [
             RebalanceTradeDetail(
                 asset="domestic_equity",
                 action="SELL",
@@ -163,11 +213,23 @@ class FakePortfolioReadService:
             )
         ]
 
+        return PaginatedResult(
+            items=items,
+            limit=limit,
+            offset=offset,
+            count=len(items),
+        )
+
     def list_rebalance_audit(
         self,
         run_id: str,
-    ) -> list[RebalanceAuditEntry]:
+        *,
+        limit: int,
+        offset: int,
+    ) -> PaginatedResult[RebalanceAuditEntry]:
         self.called = True
+        self.limit = limit
+        self.offset = offset
 
         if self.missing:
             raise RecordNotFoundError(
@@ -175,15 +237,27 @@ class FakePortfolioReadService:
             )
 
         if self.empty:
-            return []
+            return PaginatedResult(
+                items=[],
+                limit=limit,
+                offset=offset,
+                count=0,
+            )
 
-        return [
+        items = [
             RebalanceAuditEntry(
                 approval_status="NOT_REQUIRED",
                 timestamp=TIMESTAMP,
                 audit_message="Trade recorded.",
             )
         ]
+
+        return PaginatedResult(
+            items=items,
+            limit=limit,
+            offset=offset,
+            count=len(items),
+        )
 
 
 def _override_service(
@@ -201,17 +275,45 @@ def test_list_portfolios_returns_success() -> None:
     response = client.get("/portfolios")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "portfolios": [
-            {
-                "portfolio_id": "P00001",
-                "client_id": "C00001",
-                "portfolio_value": 1000000.0,
-                "currency": "USD",
-            }
-        ],
-        "portfolio_count": 1,
+    body = response.json()
+
+    assert body["limit"] == 20
+    assert body["offset"] == 0
+    assert body["count"] == 20
+    assert body["items"][0] == {
+        "portfolio_id": "P00001",
+        "client_id": "C00001",
+        "portfolio_value": 1000000.0,
+        "currency": "USD",
     }
+    assert body["items"][1]["portfolio_id"] == "P00002"
+    assert service.limit == 20
+    assert service.offset == 0
+
+
+def test_list_portfolios_accepts_custom_limit() -> None:
+    service = FakePortfolioReadService()
+    _override_service(service)
+
+    response = client.get("/portfolios?limit=2")
+
+    assert response.status_code == 200
+    assert response.json()["limit"] == 2
+    assert response.json()["offset"] == 0
+    assert response.json()["count"] == 2
+    assert service.limit == 2
+
+
+def test_list_portfolios_accepts_custom_offset() -> None:
+    service = FakePortfolioReadService()
+    _override_service(service)
+
+    response = client.get("/portfolios?limit=2&offset=5")
+
+    assert response.status_code == 200
+    assert response.json()["offset"] == 5
+    assert response.json()["items"][0]["portfolio_id"] == "P00006"
+    assert service.offset == 5
 
 
 def test_list_portfolios_returns_empty_results() -> None:
@@ -222,8 +324,10 @@ def test_list_portfolios_returns_empty_results() -> None:
 
     assert response.status_code == 200
     assert response.json() == {
-        "portfolios": [],
-        "portfolio_count": 0,
+        "items": [],
+        "limit": 20,
+        "offset": 0,
+        "count": 0,
     }
 
 
@@ -265,7 +369,7 @@ def test_list_portfolio_rebalances_returns_success() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["rebalances"] == [
+    assert response.json()["items"] == [
         {
             "run_id": "RUN000001",
             "status": "success",
@@ -274,6 +378,9 @@ def test_list_portfolio_rebalances_returns_success() -> None:
             "portfolio_value": 1000000.0,
         }
     ]
+    assert response.json()["limit"] == 20
+    assert response.json()["offset"] == 0
+    assert response.json()["count"] == 1
 
 
 def test_list_portfolio_rebalances_returns_empty_results() -> None:
@@ -285,8 +392,8 @@ def test_list_portfolio_rebalances_returns_empty_results() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["rebalances"] == []
-    assert response.json()["rebalance_count"] == 0
+    assert response.json()["items"] == []
+    assert response.json()["count"] == 0
 
 
 def test_get_rebalance_returns_success() -> None:
@@ -325,7 +432,7 @@ def test_list_rebalance_trades_returns_success() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["trades"] == [
+    assert response.json()["items"] == [
         {
             "asset": "domestic_equity",
             "action": "SELL",
@@ -346,8 +453,8 @@ def test_list_rebalance_trades_returns_empty_results() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["trades"] == []
-    assert response.json()["trade_count"] == 0
+    assert response.json()["items"] == []
+    assert response.json()["count"] == 0
 
 
 def test_list_rebalance_audit_returns_success() -> None:
@@ -359,7 +466,7 @@ def test_list_rebalance_audit_returns_success() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["audit_entries"] == [
+    assert response.json()["items"] == [
         {
             "approval_status": "NOT_REQUIRED",
             "timestamp": "2026-08-05T12:30:00Z",
@@ -376,6 +483,28 @@ def test_read_endpoint_uses_dependency_override() -> None:
 
     assert response.status_code == 200
     assert service.called is True
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/portfolios?limit=0",
+        "/portfolios?limit=51",
+        "/portfolios?offset=-1",
+        "/portfolios/P00001/rebalances?limit=0",
+        "/rebalances/RUN000001/trades?limit=51",
+        "/rebalances/RUN000001/audit?offset=-1",
+    ],
+)
+def test_paginated_read_endpoints_reject_invalid_pagination(
+    path: str,
+) -> None:
+    service = FakePortfolioReadService()
+    _override_service(service)
+
+    response = client.get(path)
+
+    assert response.status_code == 422
 
 
 def test_read_response_schema_is_frozen() -> None:
@@ -411,3 +540,25 @@ def test_openapi_contains_read_routes() -> None:
     assert "/rebalances/{run_id}" in paths
     assert "/rebalances/{run_id}/trades" in paths
     assert "/rebalances/{run_id}/audit" in paths
+
+
+def test_openapi_contains_pagination_parameters() -> None:
+    schema = app.openapi()
+
+    for path, operation in [
+        ("/portfolios", "get"),
+        ("/portfolios/{portfolio_id}/rebalances", "get"),
+        ("/rebalances/{run_id}/trades", "get"),
+        ("/rebalances/{run_id}/audit", "get"),
+    ]:
+        parameters = schema["paths"][path][operation][
+            "parameters"
+        ]
+        parameter_names = {
+            parameter["name"]
+            for parameter in parameters
+        }
+
+        assert {"limit", "offset"}.issubset(
+            parameter_names
+        )

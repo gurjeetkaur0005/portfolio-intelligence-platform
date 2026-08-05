@@ -40,9 +40,18 @@ class FakePortfolioRepository:
         self.portfolio = portfolio
         self.list_called = False
         self.required_portfolio_id: str | None = None
+        self.limit: int | None = None
+        self.offset: int | None = None
 
-    def list_portfolios(self) -> list[PortfolioModel]:
+    def list_portfolios(
+        self,
+        *,
+        limit: int,
+        offset: int,
+    ) -> list[PortfolioModel]:
         self.list_called = True
+        self.limit = limit
+        self.offset = offset
 
         if self.portfolio is None:
             return []
@@ -74,6 +83,9 @@ class FakeRebalanceRunRepository:
         self.required_run_id: str | None = None
         self.listed_portfolio_database_id: int | None = None
         self.trades_run_id: str | None = None
+        self.audit_run_id: str | None = None
+        self.limit: int | None = None
+        self.offset: int | None = None
 
     def require_by_run_id(
         self,
@@ -91,8 +103,14 @@ class FakeRebalanceRunRepository:
     def list_trades(
         self,
         run_id: str,
+        *,
+        limit: int,
+        offset: int,
     ) -> list[TradeModel]:
+        self.require_by_run_id(run_id)
         self.trades_run_id = run_id
+        self.limit = limit
+        self.offset = offset
 
         if self.run is None:
             return []
@@ -102,15 +120,41 @@ class FakeRebalanceRunRepository:
     def list_by_portfolio_database_id(
         self,
         portfolio_database_id: int,
+        *,
+        limit: int,
+        offset: int,
     ) -> list[RebalanceRunModel]:
         self.listed_portfolio_database_id = (
             portfolio_database_id
         )
+        self.limit = limit
+        self.offset = offset
 
         if self.run is None:
             return []
 
         return [self.run]
+
+    def list_audit_records(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        offset: int,
+    ) -> list[AuditRecordModel]:
+        self.require_by_run_id(run_id)
+        self.audit_run_id = run_id
+        self.limit = limit
+        self.offset = offset
+
+        if self.run is None:
+            return []
+
+        return [
+            trade.audit_record
+            for trade in self.run.trades
+            if trade.audit_record is not None
+        ]
 
 
 def _build_portfolio() -> PortfolioModel:
@@ -225,11 +269,19 @@ def test_list_portfolios_uses_repository() -> None:
         run=None,
     )
 
-    result = service.list_portfolios()
+    result = service.list_portfolios(
+        limit=10,
+        offset=5,
+    )
 
     assert portfolio_repository.list_called is True
-    assert result[0].portfolio_id == "P00001"
-    assert result[0].client_id == "C00001"
+    assert portfolio_repository.limit == 10
+    assert portfolio_repository.offset == 5
+    assert result.items[0].portfolio_id == "P00001"
+    assert result.items[0].client_id == "C00001"
+    assert result.limit == 10
+    assert result.offset == 5
+    assert result.count == 1
 
 
 def test_get_portfolio_returns_holdings() -> None:
@@ -268,15 +320,22 @@ def test_list_portfolio_rebalances_uses_repositories() -> None:
     )
 
     result = service.list_portfolio_rebalances(
-        "P00001"
+        "P00001",
+        limit=7,
+        offset=2,
     )
 
     assert (
         rebalance_repository.listed_portfolio_database_id
         == 7
     )
-    assert result[0].run_id == "RUN000001"
-    assert result[0].transaction_cost == Decimal("40.00")
+    assert rebalance_repository.limit == 7
+    assert rebalance_repository.offset == 2
+    assert result.items[0].run_id == "RUN000001"
+    assert (
+        result.items[0].transaction_cost
+        == Decimal("40.00")
+    )
 
 
 def test_get_rebalance_returns_summary_totals() -> None:
@@ -310,7 +369,9 @@ def test_list_rebalance_trades_uses_repository() -> None:
     )
 
     result = service.list_rebalance_trades(
-        "RUN000001"
+        "RUN000001",
+        limit=3,
+        offset=1,
     )
 
     assert (
@@ -321,22 +382,29 @@ def test_list_rebalance_trades_uses_repository() -> None:
         rebalance_repository.trades_run_id
         == "RUN000001"
     )
-    assert result[0].action == "SELL"
-    assert result[0].estimated_tax == Decimal("400.00")
+    assert rebalance_repository.limit == 3
+    assert rebalance_repository.offset == 1
+    assert result.items[0].action == "SELL"
+    assert result.items[0].estimated_tax == Decimal("400.00")
 
 
 def test_list_rebalance_audit_returns_audit_entries() -> None:
     portfolio = _build_portfolio()
     run = _build_run(portfolio)
-    service, _, _ = _build_service(
+    service, _, rebalance_repository = _build_service(
         portfolio=portfolio,
         run=run,
     )
 
     result = service.list_rebalance_audit(
-        "RUN000001"
+        "RUN000001",
+        limit=4,
+        offset=2,
     )
 
-    assert result[0].approval_status == "NOT_REQUIRED"
-    assert result[0].timestamp == TIMESTAMP
-    assert result[0].audit_message == "Trade recorded."
+    assert rebalance_repository.audit_run_id == "RUN000001"
+    assert rebalance_repository.limit == 4
+    assert rebalance_repository.offset == 2
+    assert result.items[0].approval_status == "NOT_REQUIRED"
+    assert result.items[0].timestamp == TIMESTAMP
+    assert result.items[0].audit_message == "Trade recorded."
