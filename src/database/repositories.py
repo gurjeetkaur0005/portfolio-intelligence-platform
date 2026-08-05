@@ -188,10 +188,35 @@ class PortfolioRepository:
                 selectinload(
                     PortfolioModel.rebalance_runs
                 ),
+                selectinload(
+                    PortfolioModel.client
+                ),
             )
         )
 
         return self._session.scalar(statement)
+
+    def list_portfolios(
+        self,
+    ) -> list[PortfolioModel]:
+        """Return all portfolios with their clients."""
+
+        statement = (
+            select(PortfolioModel)
+            .options(
+                selectinload(
+                    PortfolioModel.client
+                )
+            )
+            .order_by(
+                PortfolioModel.created_at,
+                PortfolioModel.portfolio_id,
+            )
+        )
+
+        return list(
+            self._session.scalars(statement).all()
+        )
 
     def require_portfolio_by_business_id(
         self,
@@ -409,6 +434,38 @@ class RebalanceRunRepository:
         )
 
         return list(rebalance_run.trades)
+
+    def list_by_portfolio_database_id(
+        self,
+        portfolio_database_id: int,
+    ) -> list[RebalanceRunModel]:
+        """Return rebalance runs for one database portfolio ID."""
+
+        if not isinstance(portfolio_database_id, int):
+            raise TypeError(
+                "portfolio_database_id must be an integer."
+            )
+
+        statement = (
+            select(RebalanceRunModel)
+            .where(
+                RebalanceRunModel.portfolio_id
+                == portfolio_database_id
+            )
+            .options(
+                selectinload(
+                    RebalanceRunModel.trades
+                )
+            )
+            .order_by(
+                RebalanceRunModel.started_at.desc(),
+                RebalanceRunModel.run_id,
+            )
+        )
+
+        return list(
+            self._session.scalars(statement).all()
+        )
 
 
 def _validate_non_empty_string(

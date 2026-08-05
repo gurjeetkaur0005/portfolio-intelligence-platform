@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -520,3 +520,162 @@ class DatabaseRebalanceResponse(BaseModel):
     trade_count: int
     database_run_id: int
     message: str
+
+
+class PortfolioSummaryResponse(BaseModel):
+    """Represent one stored portfolio summary."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    portfolio_id: str
+    client_id: str
+    portfolio_value: float
+    currency: str
+
+
+class PortfolioListResponse(BaseModel):
+    """Represent all stored portfolios."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    portfolios: list[PortfolioSummaryResponse]
+    portfolio_count: int
+
+
+class PortfolioHoldingResponse(BaseModel):
+    """Represent one stored portfolio holding."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    asset: str
+    current_weight: float
+    current_value: float
+    cost_basis: float
+
+
+class PortfolioDetailResponse(BaseModel):
+    """Represent a stored portfolio with holdings."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    portfolio_id: str
+    client_id: str
+    portfolio_value: float
+    currency: str
+    holdings: list[PortfolioHoldingResponse]
+    holding_count: int
+
+
+class RebalanceRunSummaryResponse(BaseModel):
+    """Represent one stored rebalance run summary."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    run_id: str
+    status: str
+    created_at: datetime
+    transaction_cost: float
+    portfolio_value: float
+
+
+class PortfolioRebalanceListResponse(BaseModel):
+    """Represent rebalance runs for one portfolio."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    portfolio_id: str
+    rebalances: list[RebalanceRunSummaryResponse]
+    rebalance_count: int
+
+
+class RebalanceRunDetailResponse(BaseModel):
+    """Represent one stored rebalance run."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    run_id: str
+    portfolio_id: str
+    status: str
+    created_at: datetime
+    completed_at: datetime | None
+    portfolio_value: float
+    transaction_cost_rate: float
+    trade_count: int
+    transaction_cost: float
+    estimated_tax_liability: float
+
+
+class RebalanceTradeResponse(BaseModel):
+    """Represent one stored rebalance trade."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    asset: str
+    action: str
+    trade_weight: float
+    trade_value: float
+    estimated_tax: float
+    estimated_transaction_cost: float
+
+
+class RebalanceTradeListResponse(BaseModel):
+    """Represent all trades for one rebalance run."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    run_id: str
+    trades: list[RebalanceTradeResponse]
+    trade_count: int
+
+
+class RebalanceAuditEntryResponse(BaseModel):
+    """Represent one stored audit entry."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    approval_status: str | None
+    timestamp: datetime
+    audit_message: str
+
+
+class RebalanceAuditResponse(BaseModel):
+    """Represent the audit trail for one rebalance run."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    run_id: str
+    audit_entries: list[RebalanceAuditEntryResponse]
+    audit_count: int

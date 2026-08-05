@@ -43,6 +43,9 @@ from src.database.session import get_database_session
 from src.services.rebalance_application_service import (
     RebalanceApplicationService,
 )
+from src.services.portfolio_read_application_service import (
+    PortfolioReadApplicationService,
+)
 
 ENABLE_PROMPT_PREVIEW_ENV = "ENABLE_PROMPT_PREVIEW"
 
@@ -206,4 +209,20 @@ def get_rebalance_application_service(
         portfolio_repository=portfolio_repository,
         orchestrator=orchestrator,
         persistence_service=persistence_service,
+    )
+
+
+def get_portfolio_read_application_service(
+    session: Session = Depends(get_database_session),
+) -> PortfolioReadApplicationService:
+    """Build the database-backed read service."""
+
+    portfolio_repository = PortfolioRepository(session)
+    rebalance_run_repository = RebalanceRunRepository(
+        session
+    )
+
+    return PortfolioReadApplicationService(
+        portfolio_repository=portfolio_repository,
+        rebalance_repository=rebalance_run_repository,
     )

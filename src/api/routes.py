@@ -30,6 +30,7 @@ from src.api.dependencies import (
     get_orchestrator_agent,
     get_portfolio_analyst_agent,
     get_prompt_builder,
+    get_portfolio_read_application_service,
     get_rebalance_application_service,
     get_strategy_comparison_runner,
     get_threshold_rebalancing_backtest_runner,
@@ -42,17 +43,28 @@ from src.api.schemas import (
     DatabaseRebalanceRequest,
     DatabaseRebalanceResponse,
     LlmHealthResponse,
+    PortfolioDetailResponse,
+    PortfolioHoldingResponse,
     PortfolioAnalysisApiPayload,
     PortfolioAnalysisEndpointResponse,
     PortfolioAnalysisResponse,
     PortfolioExplanationsRequest,
     PortfolioExplanationsResponse,
     PortfolioExplanationResponse,
+    PortfolioListResponse,
+    PortfolioRebalanceListResponse,
+    PortfolioSummaryResponse,
     PromptPreviewRequest,
     PromptPreviewResponse,
+    RebalanceAuditEntryResponse,
+    RebalanceAuditResponse,
     RebalanceExplanationResponse,
     RebalanceRequest,
     RebalanceResponse,
+    RebalanceRunDetailResponse,
+    RebalanceRunSummaryResponse,
+    RebalanceTradeListResponse,
+    RebalanceTradeResponse,
     StrategyComparisonRequest,
     StrategyComparisonResponse,
     StrategyMetricsResponse,
@@ -69,6 +81,9 @@ from src.services.rebalance_application_service import (
     RebalanceApplicationService,
     RebalanceExecutionError,
     RebalancePersistenceError,
+)
+from src.services.portfolio_read_application_service import (
+    PortfolioReadApplicationService,
 )
 
 router = APIRouter()
@@ -312,6 +327,114 @@ def _strategy_metrics_response(
         total_implementation_cost=(
             metrics.total_implementation_cost
         ),
+    )
+
+
+def _portfolio_summary_response(
+    portfolio: Any,
+) -> PortfolioSummaryResponse:
+    """Convert a portfolio summary DTO into an API response."""
+
+    return PortfolioSummaryResponse(
+        portfolio_id=portfolio.portfolio_id,
+        client_id=portfolio.client_id,
+        portfolio_value=float(portfolio.portfolio_value),
+        currency=portfolio.currency,
+    )
+
+
+def _portfolio_detail_response(
+    portfolio: Any,
+) -> PortfolioDetailResponse:
+    """Convert a portfolio detail DTO into an API response."""
+
+    holdings = [
+        PortfolioHoldingResponse(
+            asset=holding.asset,
+            current_weight=float(holding.current_weight),
+            current_value=float(holding.current_value),
+            cost_basis=float(holding.cost_basis),
+        )
+        for holding in portfolio.holdings
+    ]
+
+    return PortfolioDetailResponse(
+        portfolio_id=portfolio.portfolio_id,
+        client_id=portfolio.client_id,
+        portfolio_value=float(portfolio.portfolio_value),
+        currency=portfolio.currency,
+        holdings=holdings,
+        holding_count=len(holdings),
+    )
+
+
+def _rebalance_summary_response(
+    rebalance: Any,
+) -> RebalanceRunSummaryResponse:
+    """Convert a rebalance summary DTO into an API response."""
+
+    return RebalanceRunSummaryResponse(
+        run_id=rebalance.run_id,
+        status=rebalance.status,
+        created_at=rebalance.created_at,
+        transaction_cost=float(
+            rebalance.transaction_cost
+        ),
+        portfolio_value=float(rebalance.portfolio_value),
+    )
+
+
+def _rebalance_detail_response(
+    rebalance: Any,
+) -> RebalanceRunDetailResponse:
+    """Convert a rebalance detail DTO into an API response."""
+
+    return RebalanceRunDetailResponse(
+        run_id=rebalance.run_id,
+        portfolio_id=rebalance.portfolio_id,
+        status=rebalance.status,
+        created_at=rebalance.created_at,
+        completed_at=rebalance.completed_at,
+        portfolio_value=float(rebalance.portfolio_value),
+        transaction_cost_rate=float(
+            rebalance.transaction_cost_rate
+        ),
+        trade_count=rebalance.trade_count,
+        transaction_cost=float(
+            rebalance.transaction_cost
+        ),
+        estimated_tax_liability=float(
+            rebalance.estimated_tax_liability
+        ),
+    )
+
+
+def _rebalance_trade_response(
+    trade: Any,
+) -> RebalanceTradeResponse:
+    """Convert a rebalance trade DTO into an API response."""
+
+    return RebalanceTradeResponse(
+        asset=trade.asset,
+        action=trade.action,
+        trade_weight=float(trade.trade_weight),
+        trade_value=float(trade.trade_value),
+        estimated_tax=float(trade.estimated_tax),
+        estimated_transaction_cost=float(
+            trade.estimated_transaction_cost
+        ),
+    )
+
+
+def _rebalance_audit_entry_response(
+    audit_entry: Any,
+) -> RebalanceAuditEntryResponse:
+    """Convert a rebalance audit DTO into an API response."""
+
+    return RebalanceAuditEntryResponse(
+        approval_status=audit_entry.approval_status,
+        timestamp=audit_entry.timestamp,
+        audit_message=audit_entry.audit_message,
     )
 
 
@@ -760,6 +883,178 @@ def preview_prompt_endpoint(
         max_output_tokens=(
             language_model_request.max_output_tokens
         ),
+    )
+
+
+@router.get(
+    "/portfolios",
+    response_model=PortfolioListResponse,
+    tags=["Portfolios"],
+)
+def list_portfolios_endpoint(
+    service: PortfolioReadApplicationService = Depends(
+        get_portfolio_read_application_service
+    ),
+) -> PortfolioListResponse:
+    """Return all persisted portfolios."""
+
+    portfolios = [
+        _portfolio_summary_response(portfolio)
+        for portfolio in service.list_portfolios()
+    ]
+
+    return PortfolioListResponse(
+        portfolios=portfolios,
+        portfolio_count=len(portfolios),
+    )
+
+
+@router.get(
+    "/portfolios/{portfolio_id}",
+    response_model=PortfolioDetailResponse,
+    tags=["Portfolios"],
+)
+def get_portfolio_endpoint(
+    portfolio_id: str,
+    service: PortfolioReadApplicationService = Depends(
+        get_portfolio_read_application_service
+    ),
+) -> PortfolioDetailResponse:
+    """Return one persisted portfolio with holdings."""
+
+    try:
+        portfolio = service.get_portfolio(portfolio_id)
+    except RecordNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+
+    return _portfolio_detail_response(portfolio)
+
+
+@router.get(
+    "/portfolios/{portfolio_id}/rebalances",
+    response_model=PortfolioRebalanceListResponse,
+    tags=["Rebalancing"],
+)
+def list_portfolio_rebalances_endpoint(
+    portfolio_id: str,
+    service: PortfolioReadApplicationService = Depends(
+        get_portfolio_read_application_service
+    ),
+) -> PortfolioRebalanceListResponse:
+    """Return rebalance runs for one persisted portfolio."""
+
+    try:
+        rebalances = [
+            _rebalance_summary_response(rebalance)
+            for rebalance in (
+                service.list_portfolio_rebalances(
+                    portfolio_id
+                )
+            )
+        ]
+    except RecordNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+
+    return PortfolioRebalanceListResponse(
+        portfolio_id=portfolio_id,
+        rebalances=rebalances,
+        rebalance_count=len(rebalances),
+    )
+
+
+@router.get(
+    "/rebalances/{run_id}",
+    response_model=RebalanceRunDetailResponse,
+    tags=["Rebalancing"],
+)
+def get_rebalance_endpoint(
+    run_id: str,
+    service: PortfolioReadApplicationService = Depends(
+        get_portfolio_read_application_service
+    ),
+) -> RebalanceRunDetailResponse:
+    """Return one persisted rebalance run."""
+
+    try:
+        rebalance = service.get_rebalance(run_id)
+    except RecordNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+
+    return _rebalance_detail_response(rebalance)
+
+
+@router.get(
+    "/rebalances/{run_id}/trades",
+    response_model=RebalanceTradeListResponse,
+    tags=["Rebalancing"],
+)
+def list_rebalance_trades_endpoint(
+    run_id: str,
+    service: PortfolioReadApplicationService = Depends(
+        get_portfolio_read_application_service
+    ),
+) -> RebalanceTradeListResponse:
+    """Return persisted trades for one rebalance run."""
+
+    try:
+        trades = [
+            _rebalance_trade_response(trade)
+            for trade in service.list_rebalance_trades(
+                run_id
+            )
+        ]
+    except RecordNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+
+    return RebalanceTradeListResponse(
+        run_id=run_id,
+        trades=trades,
+        trade_count=len(trades),
+    )
+
+
+@router.get(
+    "/rebalances/{run_id}/audit",
+    response_model=RebalanceAuditResponse,
+    tags=["Rebalancing"],
+)
+def list_rebalance_audit_endpoint(
+    run_id: str,
+    service: PortfolioReadApplicationService = Depends(
+        get_portfolio_read_application_service
+    ),
+) -> RebalanceAuditResponse:
+    """Return persisted audit entries for one rebalance run."""
+
+    try:
+        audit_entries = [
+            _rebalance_audit_entry_response(entry)
+            for entry in service.list_rebalance_audit(
+                run_id
+            )
+        ]
+    except RecordNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+
+    return RebalanceAuditResponse(
+        run_id=run_id,
+        audit_entries=audit_entries,
+        audit_count=len(audit_entries),
     )
 
 
