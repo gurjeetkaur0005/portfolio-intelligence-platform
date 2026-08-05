@@ -7,14 +7,16 @@ from uuid import uuid4
 
 import pandas as pd
 
-from src.agents.orchestrator_agent import (
-    AgentExecutionStatus,
-    OrchestratorRequest,
-    OrchestratorResponse,
-)
 from src.database.models import (
     PortfolioModel,
     RebalanceRunModel,
+)
+from src.pipeline.rebalance_pipeline import (
+    run_rebalance_pipeline_for_inputs,
+)
+from src.services.portfolio_input_adapter import (
+    DeterministicPortfolioInput,
+    PortfolioInputAdapter,
 )
 
 
@@ -29,14 +31,29 @@ class PortfolioRepositoryProtocol(Protocol):
         ...
 
 
-class OrchestratorProtocol(Protocol):
-    """Describe the deterministic rebalance operation."""
+class PortfolioInputAdapterProtocol(Protocol):
+    """Describe persisted-portfolio input adaptation."""
 
-    def execute_rebalance(
+    def build_input(
         self,
-        request: OrchestratorRequest,
-    ) -> OrchestratorResponse:
-        """Execute the existing deterministic rebalance workflow."""
+        portfolio: PortfolioModel,
+    ) -> DeterministicPortfolioInput:
+        """Build deterministic pipeline input."""
+        ...
+
+
+class RebalancePipelineProtocol(Protocol):
+    """Describe the deterministic portfolio engine entry point."""
+
+    def __call__(
+        self,
+        *,
+        client_profiles: pd.DataFrame,
+        portfolios: pd.DataFrame,
+        portfolio_value: float = 1_000_000.0,
+        transaction_cost_rate: float = 0.002,
+    ) -> pd.DataFrame:
+        """Run deterministic rebalancing for supplied inputs."""
         ...
 
 
@@ -64,7 +81,7 @@ class RebalanceApplicationServiceError(RuntimeError):
 class RebalanceExecutionError(
     RebalanceApplicationServiceError
 ):
-    """Raised when the orchestrator cannot complete the workflow."""
+    """Raised when the deterministic workflow cannot complete."""
 
 
 class RebalancePersistenceError(
@@ -99,14 +116,24 @@ class RebalanceApplicationService:
     def __init__(
         self,
         portfolio_repository: PortfolioRepositoryProtocol,
-        orchestrator: OrchestratorProtocol,
         persistence_service: RebalancePersistenceProtocol,
+        portfolio_input_adapter: (
+            PortfolioInputAdapterProtocol | None
+        ) = None,
+        portfolio_engine: RebalancePipelineProtocol = (
+            run_rebalance_pipeline_for_inputs
+        ),
     ) -> None:
         """Initialize the application service dependencies."""
 
         self._portfolio_repository = portfolio_repository
-        self._orchestrator = orchestrator
         self._persistence_service = persistence_service
+        self._portfolio_input_adapter = (
+            portfolio_input_adapter
+            if portfolio_input_adapter is not None
+            else PortfolioInputAdapter()
+        )
+        self._portfolio_engine = portfolio_engine
 
     def execute_rebalance(
         self,
@@ -173,29 +200,19 @@ class RebalanceApplicationService:
             )
         )
 
-        orchestrator_request = OrchestratorRequest(
-            number_of_clients=1,
-            evaluation_date=None,
-            portfolio_value=float(
-                normalized_portfolio_value
-            ),
-            transaction_cost_rate=float(
-                normalized_transaction_cost_rate
-            ),
-        )
-
-        orchestrator_response = (
-            self._orchestrator.execute_rebalance(
-                orchestrator_request
+        deterministic_input = (
+            self._portfolio_input_adapter.build_input(
+                portfolio
             )
         )
 
-        trade_results = _extract_successful_result(
-            orchestrator_response
-        )
-
-        portfolio_trade_results = _extract_portfolio_rows(
-            trade_results=trade_results,
+        trade_results = _execute_portfolio_engine(
+            portfolio_engine=self._portfolio_engine,
+            deterministic_input=deterministic_input,
+            portfolio_value=normalized_portfolio_value,
+            transaction_cost_rate=(
+                normalized_transaction_cost_rate
+            ),
             portfolio_id=normalized_portfolio_id,
         )
 
@@ -204,7 +221,7 @@ class RebalanceApplicationService:
                 self._persistence_service
                 .persist_rebalance_result(
                     portfolio=portfolio,
-                    trade_results=portfolio_trade_results,
+                    trade_results=trade_results,
                     portfolio_value=(
                         normalized_portfolio_value
                     ),
@@ -212,7 +229,7 @@ class RebalanceApplicationService:
                         normalized_transaction_cost_rate
                     ),
                     run_id=normalized_run_id,
-                    status=orchestrator_response.status.value,
+                    status="success",
                 )
             )
         except Exception as error:
@@ -230,64 +247,53 @@ class RebalanceApplicationService:
         return PersistedRebalanceResult(
             portfolio_id=normalized_portfolio_id,
             run_id=persisted_run.run_id,
-            workflow_status=(
-                orchestrator_response.status.value
-            ),
-            workflow_name=(
-                orchestrator_response.workflow_name
-            ),
+            workflow_status="success",
+            workflow_name="portfolio_rebalancing",
             workflow_message=(
-                orchestrator_response.message
+                "The database-backed rebalance workflow "
+                "completed successfully."
             ),
-            trade_count=len(
-                portfolio_trade_results
-            ),
+            trade_count=len(trade_results),
             database_run_id=persisted_run.id,
         )
 
 
-def _extract_successful_result(
-    response: OrchestratorResponse,
+def _execute_portfolio_engine(
+    *,
+    portfolio_engine: RebalancePipelineProtocol,
+    deterministic_input: DeterministicPortfolioInput,
+    portfolio_value: Decimal,
+    transaction_cost_rate: Decimal,
+    portfolio_id: str,
 ) -> pd.DataFrame:
-    """Return a copied successful orchestrator DataFrame."""
+    """Run and validate the database-backed deterministic workflow."""
 
-    if not isinstance(response, OrchestratorResponse):
-        raise TypeError(
-            "orchestrator must return an "
-            "OrchestratorResponse."
+    try:
+        trade_results = portfolio_engine(
+            client_profiles=(
+                deterministic_input.client_profiles
+            ),
+            portfolios=deterministic_input.portfolios,
+            portfolio_value=float(portfolio_value),
+            transaction_cost_rate=float(
+                transaction_cost_rate
+            ),
         )
-
-    if response.status == AgentExecutionStatus.FAILED:
+    except Exception as error:
         raise RebalanceExecutionError(
-            response.message
-        )
+            "The rebalance workflow could not be completed."
+        ) from error
 
-    if response.result is None:
-        raise RebalanceExecutionError(
-            "The rebalance workflow completed without "
-            "returning trade results."
-        )
-
-    if not isinstance(response.result, pd.DataFrame):
+    if not isinstance(trade_results, pd.DataFrame):
         raise RebalanceExecutionError(
             "The rebalance workflow result must be "
             "a pandas DataFrame."
         )
 
-    if response.result.empty:
+    if trade_results.empty:
         raise RebalanceExecutionError(
             "The rebalance workflow returned no trade rows."
         )
-
-    return response.result.copy(deep=True)
-
-
-def _extract_portfolio_rows(
-    *,
-    trade_results: pd.DataFrame,
-    portfolio_id: str,
-) -> pd.DataFrame:
-    """Return trade rows belonging to the requested portfolio."""
 
     if "portfolio_id" not in trade_results.columns:
         raise RebalanceExecutionError(
@@ -301,32 +307,10 @@ def _extract_portfolio_rows(
     ].copy(deep=True)
 
     if portfolio_rows.empty:
-        available_portfolio_ids = {
-            str(value)
-            for value in trade_results[
-                "portfolio_id"
-            ].dropna()
-        }
-
-        if len(available_portfolio_ids) == 1:
-            generated_portfolio_id = next(
-                iter(available_portfolio_ids)
-            )
-
-            portfolio_rows = trade_results.loc[
-                trade_results["portfolio_id"].astype(str)
-                == generated_portfolio_id
-            ].copy(deep=True)
-
-            portfolio_rows.loc[
-                :,
-                "portfolio_id",
-            ] = portfolio_id
-        else:
-            raise RebalanceExecutionError(
-                "The rebalance workflow did not return "
-                "a unique portfolio result."
-            )
+        raise RebalanceExecutionError(
+            "The rebalance workflow returned no rows for "
+            "the requested portfolio."
+        )
 
     return portfolio_rows.reset_index(
         drop=True

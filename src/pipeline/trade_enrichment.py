@@ -33,10 +33,14 @@ def enrich_trade_data(
     result["current_weight"] = _validate_current_weights(result)
 
     result["portfolio_id"] = portfolio_id
-    result["current_value"] = (
-        result["current_weight"] * portfolio_value
-    )
-    result["cost_basis"] = result["current_value"] * 0.90
+    if "current_value" not in result.columns:
+        result["current_value"] = (
+            result["current_weight"] * portfolio_value
+        )
+
+    if "cost_basis" not in result.columns:
+        result["cost_basis"] = result["current_value"] * 0.90
+
     result["tax_rate"] = tax_rate
 
     return result
@@ -95,4 +99,3 @@ def _validate_current_weights(
         )
 
     return current_weights
-

@@ -65,8 +65,6 @@ def run_rebalance_pipeline(
     if evaluation_date is None:
         evaluation_date = date(2026, 1, 2)
 
-    from src.optimization.portfolio_optimizer import PortfolioOptimizer
-
     client_profiles = generate_client_profiles(
         number_of_clients=number_of_clients,
         seed=seed,
@@ -75,6 +73,46 @@ def run_rebalance_pipeline(
         client_profiles=client_profiles,
         seed=seed,
     )
+
+    return run_rebalance_pipeline_for_inputs(
+        client_profiles=client_profiles,
+        portfolios=portfolios,
+        evaluation_date=evaluation_date,
+        portfolio_value=portfolio_value,
+        transaction_cost_rate=transaction_cost_rate,
+        market_drop=market_drop,
+        regulatory_change=regulatory_change,
+        client_life_event=client_life_event,
+        corporate_action=corporate_action,
+        large_cash_flow=large_cash_flow,
+    )
+
+
+def run_rebalance_pipeline_for_inputs(
+    *,
+    client_profiles: pd.DataFrame,
+    portfolios: pd.DataFrame,
+    evaluation_date: date | None = None,
+    portfolio_value: float = 1_000_000.0,
+    transaction_cost_rate: float = 0.002,
+    market_drop: float = 0.0,
+    regulatory_change: bool = False,
+    client_life_event: bool = False,
+    corporate_action: bool = False,
+    large_cash_flow: bool = False,
+) -> pd.DataFrame:
+    """
+    Run the rebalance workflow for supplied deterministic inputs.
+
+    This entry point preserves the existing deterministic pipeline while
+    allowing production callers to provide persisted portfolio input
+    instead of synthetic generator output.
+    """
+
+    if evaluation_date is None:
+        evaluation_date = date(2026, 1, 2)
+
+    from src.optimization.portfolio_optimizer import PortfolioOptimizer
 
     drift_results = calculate_drift(portfolios)
     threshold_results = evaluate_threshold_triggers(drift_results)
@@ -167,6 +205,10 @@ def _rebalance_portfolio(
         trade_weights=optimization_result.trade_weights,
         post_trade_weights=optimization_result.post_trade_weights,
     )
+    trade_list = _add_persisted_holding_values(
+        trade_list=trade_list,
+        portfolio=portfolio,
+    )
     costed_trades = estimate_transaction_costs(
         trade_list=trade_list,
         portfolio_value=portfolio_value,
@@ -218,6 +260,36 @@ def _extract_weights(
         ],
         dtype=float,
     )
+
+
+def _add_persisted_holding_values(
+    *,
+    trade_list: pd.DataFrame,
+    portfolio: Any,
+) -> pd.DataFrame:
+    """Add persisted holding value columns when supplied."""
+
+    result = trade_list.copy()
+
+    for value_prefix in [
+        "current_value",
+        "cost_basis",
+    ]:
+        values: list[float] = []
+
+        for asset in ASSET_CLASSES:
+            column_name = f"{value_prefix}_{asset}"
+
+            if not hasattr(portfolio, column_name):
+                return result
+
+            values.append(
+                float(getattr(portfolio, column_name))
+            )
+
+        result[value_prefix] = values
+
+    return result
 
 
 def _get_tax_rate(

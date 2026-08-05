@@ -5,11 +5,6 @@ from decimal import Decimal
 import pandas as pd
 import pytest
 
-from src.agents.orchestrator_agent import (
-    AgentExecutionStatus,
-    OrchestratorRequest,
-    OrchestratorResponse,
-)
 from src.database.models import (
     PortfolioModel,
     RebalanceRunModel,
@@ -22,6 +17,9 @@ from src.services.rebalance_application_service import (
     RebalanceApplicationService,
     RebalanceExecutionError,
     RebalancePersistenceError,
+)
+from src.services.portfolio_input_adapter import (
+    DeterministicPortfolioInput,
 )
 
 
@@ -49,25 +47,79 @@ class FakePortfolioRepository:
         return self.portfolio
 
 
-class FakeOrchestrator:
-    """Return a predefined orchestrator response."""
+class FakePortfolioInputAdapter:
+    """Return predefined deterministic pipeline input."""
 
     def __init__(
         self,
-        response: OrchestratorResponse,
+        deterministic_input: (
+            DeterministicPortfolioInput | None
+        ) = None,
     ) -> None:
-        self.response = response
-        self.received_request: (
-            OrchestratorRequest | None
+        self.deterministic_input = (
+            deterministic_input
+            if deterministic_input is not None
+            else _build_deterministic_input()
+        )
+        self.received_portfolio: (
+            PortfolioModel | None
         ) = None
 
-    def execute_rebalance(
+    def build_input(
         self,
-        request: OrchestratorRequest,
-    ) -> OrchestratorResponse:
-        self.received_request = request
+        portfolio: PortfolioModel,
+    ) -> DeterministicPortfolioInput:
+        self.received_portfolio = portfolio
 
-        return self.response
+        return self.deterministic_input
+
+
+class FakePortfolioEngine:
+    """Return predefined deterministic trade results."""
+
+    def __init__(
+        self,
+        result: pd.DataFrame | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self.result = (
+            _build_trade_results()
+            if result is None
+            else result
+        )
+        self.error = error
+        self.received_client_profiles: (
+            pd.DataFrame | None
+        ) = None
+        self.received_portfolios: pd.DataFrame | None = None
+        self.received_portfolio_value: float | None = None
+        self.received_transaction_cost_rate: (
+            float | None
+        ) = None
+
+    def __call__(
+        self,
+        *,
+        client_profiles: pd.DataFrame,
+        portfolios: pd.DataFrame,
+        portfolio_value: float = 1_000_000.0,
+        transaction_cost_rate: float = 0.002,
+    ) -> pd.DataFrame:
+        self.received_client_profiles = (
+            client_profiles.copy(deep=True)
+        )
+        self.received_portfolios = portfolios.copy(
+            deep=True
+        )
+        self.received_portfolio_value = portfolio_value
+        self.received_transaction_cost_rate = (
+            transaction_cost_rate
+        )
+
+        if self.error is not None:
+            raise self.error
+
+        return self.result
 
 
 class FakePersistenceService:
@@ -145,13 +197,13 @@ def _build_trade_results() -> pd.DataFrame:
     return pd.DataFrame(
         [
             {
-                "portfolio_id": "P00001",
+                "portfolio_id": "P-STORED-001",
                 "asset": "domestic_equity",
                 "action": "SELL",
                 "trade_value": -20_000.0,
             },
             {
-                "portfolio_id": "P00001",
+                "portfolio_id": "P-STORED-001",
                 "asset": "fixed_income",
                 "action": "BUY",
                 "trade_value": 20_000.0,
@@ -160,19 +212,31 @@ def _build_trade_results() -> pd.DataFrame:
     )
 
 
-def _build_success_response(
-    result: pd.DataFrame | None = None,
-) -> OrchestratorResponse:
-    """Build one successful orchestrator response."""
+def _build_deterministic_input() -> DeterministicPortfolioInput:
+    """Build deterministic pipeline input."""
 
-    return OrchestratorResponse(
-        status=AgentExecutionStatus.SUCCESS,
-        workflow_name="portfolio_rebalancing",
-        message="Workflow completed successfully.",
-        result=(
-            _build_trade_results()
-            if result is None
-            else result
+    return DeterministicPortfolioInput(
+        client_profiles=pd.DataFrame(
+            [
+                {
+                    "client_id": "C00001",
+                    "portfolio_id": "P-STORED-001",
+                    "risk_category": "balanced",
+                    "tax_bracket": 0.20,
+                    "prior_approval_required": False,
+                }
+            ]
+        ),
+        portfolios=pd.DataFrame(
+            [
+                {
+                    "portfolio_id": "P-STORED-001",
+                    "risk_category": "balanced",
+                    "drift_band": 0.05,
+                    "current_cash": 1.0,
+                    "target_cash": 1.0,
+                }
+            ]
         ),
     )
 
@@ -194,22 +258,57 @@ def _build_persisted_run() -> RebalanceRunModel:
     return run
 
 
+def _build_service(
+    *,
+    portfolio_repository: FakePortfolioRepository | None = None,
+    persistence_service: FakePersistenceService | None = None,
+    portfolio_input_adapter: (
+        FakePortfolioInputAdapter | None
+    ) = None,
+    portfolio_engine: FakePortfolioEngine | None = None,
+) -> RebalanceApplicationService:
+    """Build the application service with fakes."""
+
+    return RebalanceApplicationService(
+        portfolio_repository=(
+            portfolio_repository
+            if portfolio_repository is not None
+            else FakePortfolioRepository(
+                _build_portfolio()
+            )
+        ),
+        persistence_service=(
+            persistence_service
+            if persistence_service is not None
+            else FakePersistenceService(
+                _build_persisted_run()
+            )
+        ),
+        portfolio_input_adapter=(
+            portfolio_input_adapter
+            if portfolio_input_adapter is not None
+            else FakePortfolioInputAdapter()
+        ),
+        portfolio_engine=(
+            portfolio_engine
+            if portfolio_engine is not None
+            else FakePortfolioEngine()
+        ),
+    )
+
+
 def test_execute_rebalance_returns_persisted_result() -> None:
     portfolio = _build_portfolio()
 
     portfolio_repository = FakePortfolioRepository(
         portfolio
     )
-    orchestrator = FakeOrchestrator(
-        _build_success_response()
-    )
     persistence_service = FakePersistenceService(
         _build_persisted_run()
     )
 
-    service = RebalanceApplicationService(
+    service = _build_service(
         portfolio_repository=portfolio_repository,
-        orchestrator=orchestrator,
         persistence_service=persistence_service,
     )
 
@@ -235,15 +334,11 @@ def test_service_loads_requested_portfolio() -> None:
     portfolio_repository = FakePortfolioRepository(
         _build_portfolio()
     )
+    portfolio_input_adapter = FakePortfolioInputAdapter()
 
-    service = RebalanceApplicationService(
+    service = _build_service(
         portfolio_repository=portfolio_repository,
-        orchestrator=FakeOrchestrator(
-            _build_success_response()
-        ),
-        persistence_service=FakePersistenceService(
-            _build_persisted_run()
-        ),
+        portfolio_input_adapter=portfolio_input_adapter,
     )
 
     service.execute_rebalance(
@@ -256,21 +351,17 @@ def test_service_loads_requested_portfolio() -> None:
         portfolio_repository.received_portfolio_id
         == "P-STORED-001"
     )
-
-
-def test_service_passes_values_to_orchestrator() -> None:
-    orchestrator = FakeOrchestrator(
-        _build_success_response()
+    assert (
+        portfolio_input_adapter.received_portfolio
+        is portfolio_repository.portfolio
     )
 
-    service = RebalanceApplicationService(
-        portfolio_repository=FakePortfolioRepository(
-            _build_portfolio()
-        ),
-        orchestrator=orchestrator,
-        persistence_service=FakePersistenceService(
-            _build_persisted_run()
-        ),
+
+def test_service_passes_values_to_portfolio_engine() -> None:
+    portfolio_engine = FakePortfolioEngine()
+
+    service = _build_service(
+        portfolio_engine=portfolio_engine,
     )
 
     service.execute_rebalance(
@@ -279,18 +370,14 @@ def test_service_passes_values_to_orchestrator() -> None:
         transaction_cost_rate=Decimal("0.001"),
     )
 
-    assert orchestrator.received_request is not None
+    assert portfolio_engine.received_client_profiles is not None
+    assert portfolio_engine.received_portfolios is not None
     assert (
-        orchestrator.received_request.number_of_clients
-        == 1
+        portfolio_engine.received_portfolio_value
+        == 750000.0
     )
     assert (
-        orchestrator.received_request.portfolio_value
-        == 750_000.0
-    )
-    assert (
-        orchestrator.received_request
-        .transaction_cost_rate
+        portfolio_engine.received_transaction_cost_rate
         == 0.001
     )
 
@@ -300,13 +387,7 @@ def test_service_persists_only_requested_portfolio() -> None:
         _build_persisted_run()
     )
 
-    service = RebalanceApplicationService(
-        portfolio_repository=FakePortfolioRepository(
-            _build_portfolio()
-        ),
-        orchestrator=FakeOrchestrator(
-            _build_success_response()
-        ),
+    service = _build_service(
         persistence_service=persistence_service,
     )
 
@@ -327,21 +408,34 @@ def test_service_persists_only_requested_portfolio() -> None:
     ) == {"P-STORED-001"}
 
 
-def test_service_does_not_mutate_orchestrator_result() -> None:
+def test_service_rejects_generated_portfolio_results() -> None:
+    generated_trade_results = _build_trade_results()
+    generated_trade_results["portfolio_id"] = "P00001"
+
+    service = _build_service(
+        portfolio_engine=FakePortfolioEngine(
+            generated_trade_results
+        ),
+    )
+
+    with pytest.raises(
+        RebalanceExecutionError,
+        match="requested portfolio",
+    ):
+        service.execute_rebalance(
+            portfolio_id="P-STORED-001",
+            portfolio_value=Decimal("1000000.00"),
+            transaction_cost_rate=Decimal("0.002"),
+        )
+
+
+def test_service_does_not_mutate_engine_result() -> None:
     trade_results = _build_trade_results()
     original = trade_results.copy(deep=True)
 
-    service = RebalanceApplicationService(
-        portfolio_repository=FakePortfolioRepository(
-            _build_portfolio()
-        ),
-        orchestrator=FakeOrchestrator(
-            _build_success_response(
-                trade_results
-            )
-        ),
-        persistence_service=FakePersistenceService(
-            _build_persisted_run()
+    service = _build_service(
+        portfolio_engine=FakePortfolioEngine(
+            trade_results
         ),
     )
 
@@ -358,15 +452,9 @@ def test_service_does_not_mutate_orchestrator_result() -> None:
 
 
 def test_missing_portfolio_error_is_preserved() -> None:
-    service = RebalanceApplicationService(
+    service = _build_service(
         portfolio_repository=FakePortfolioRepository(
             None
-        ),
-        orchestrator=FakeOrchestrator(
-            _build_success_response()
-        ),
-        persistence_service=FakePersistenceService(
-            _build_persisted_run()
         ),
     )
 
@@ -381,29 +469,16 @@ def test_missing_portfolio_error_is_preserved() -> None:
         )
 
 
-def test_failed_orchestrator_raises_execution_error() -> None:
-    failed_response = OrchestratorResponse(
-        status=AgentExecutionStatus.FAILED,
-        workflow_name="portfolio_rebalancing",
-        message="Optimizer failed.",
-        result=None,
-    )
-
-    service = RebalanceApplicationService(
-        portfolio_repository=FakePortfolioRepository(
-            _build_portfolio()
-        ),
-        orchestrator=FakeOrchestrator(
-            failed_response
-        ),
-        persistence_service=FakePersistenceService(
-            _build_persisted_run()
+def test_failed_portfolio_engine_raises_execution_error() -> None:
+    service = _build_service(
+        portfolio_engine=FakePortfolioEngine(
+            error=RuntimeError("Optimizer failed.")
         ),
     )
 
     with pytest.raises(
         RebalanceExecutionError,
-        match="Optimizer failed",
+        match="could not be completed",
     ):
         service.execute_rebalance(
             portfolio_id="P-STORED-001",
@@ -413,17 +488,9 @@ def test_failed_orchestrator_raises_execution_error() -> None:
 
 
 def test_empty_result_raises_execution_error() -> None:
-    service = RebalanceApplicationService(
-        portfolio_repository=FakePortfolioRepository(
-            _build_portfolio()
-        ),
-        orchestrator=FakeOrchestrator(
-            _build_success_response(
-                pd.DataFrame()
-            )
-        ),
-        persistence_service=FakePersistenceService(
-            _build_persisted_run()
+    service = _build_service(
+        portfolio_engine=FakePortfolioEngine(
+            pd.DataFrame()
         ),
     )
 
@@ -439,13 +506,7 @@ def test_empty_result_raises_execution_error() -> None:
 
 
 def test_persistence_failure_is_wrapped() -> None:
-    service = RebalanceApplicationService(
-        portfolio_repository=FakePortfolioRepository(
-            _build_portfolio()
-        ),
-        orchestrator=FakeOrchestrator(
-            _build_success_response()
-        ),
+    service = _build_service(
         persistence_service=FakePersistenceService(
             _build_persisted_run(),
             error=RuntimeError("Database failed."),
@@ -475,17 +536,7 @@ def test_persistence_failure_is_wrapped() -> None:
 def test_invalid_portfolio_value_is_rejected(
     portfolio_value: Decimal,
 ) -> None:
-    service = RebalanceApplicationService(
-        portfolio_repository=FakePortfolioRepository(
-            _build_portfolio()
-        ),
-        orchestrator=FakeOrchestrator(
-            _build_success_response()
-        ),
-        persistence_service=FakePersistenceService(
-            _build_persisted_run()
-        ),
-    )
+    service = _build_service()
 
     with pytest.raises(ValueError):
         service.execute_rebalance(
@@ -507,17 +558,7 @@ def test_invalid_portfolio_value_is_rejected(
 def test_invalid_transaction_cost_rate_is_rejected(
     transaction_cost_rate: Decimal,
 ) -> None:
-    service = RebalanceApplicationService(
-        portfolio_repository=FakePortfolioRepository(
-            _build_portfolio()
-        ),
-        orchestrator=FakeOrchestrator(
-            _build_success_response()
-        ),
-        persistence_service=FakePersistenceService(
-            _build_persisted_run()
-        ),
-    )
+    service = _build_service()
 
     with pytest.raises(ValueError):
         service.execute_rebalance(
@@ -530,17 +571,7 @@ def test_invalid_transaction_cost_rate_is_rejected(
 
 
 def test_empty_portfolio_id_is_rejected() -> None:
-    service = RebalanceApplicationService(
-        portfolio_repository=FakePortfolioRepository(
-            _build_portfolio()
-        ),
-        orchestrator=FakeOrchestrator(
-            _build_success_response()
-        ),
-        persistence_service=FakePersistenceService(
-            _build_persisted_run()
-        ),
-    )
+    service = _build_service()
 
     with pytest.raises(
         ValueError,

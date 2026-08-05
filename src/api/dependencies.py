@@ -46,6 +46,9 @@ from src.services.rebalance_application_service import (
 from src.services.portfolio_read_application_service import (
     PortfolioReadApplicationService,
 )
+from src.services.portfolio_input_adapter import (
+    PortfolioInputAdapter,
+)
 
 ENABLE_PROMPT_PREVIEW_ENV = "ENABLE_PROMPT_PREVIEW"
 
@@ -189,9 +192,6 @@ def is_prompt_preview_enabled() -> bool:
 
 def get_rebalance_application_service(
     session: Session = Depends(get_database_session),
-    orchestrator: OrchestratorAgent = Depends(
-        get_orchestrator_agent
-    ),
 ) -> RebalanceApplicationService:
     """Build the database-backed rebalance service."""
 
@@ -207,8 +207,8 @@ def get_rebalance_application_service(
 
     return RebalanceApplicationService(
         portfolio_repository=portfolio_repository,
-        orchestrator=orchestrator,
         persistence_service=persistence_service,
+        portfolio_input_adapter=PortfolioInputAdapter(),
     )
 
 
