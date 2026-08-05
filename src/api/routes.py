@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
@@ -29,6 +30,7 @@ from src.api.dependencies import (
     get_orchestrator_agent,
     get_portfolio_analyst_agent,
     get_prompt_builder,
+    get_rebalance_application_service,
     get_strategy_comparison_runner,
     get_threshold_rebalancing_backtest_runner,
     is_prompt_preview_enabled,
@@ -37,6 +39,8 @@ from src.api.schemas import (
     BacktestMetricsResponse,
     BuyAndHoldBacktestRequest,
     BuyAndHoldBacktestResponse,
+    DatabaseRebalanceRequest,
+    DatabaseRebalanceResponse,
     LlmHealthResponse,
     PortfolioAnalysisApiPayload,
     PortfolioAnalysisEndpointResponse,
@@ -58,8 +62,14 @@ from src.api.schemas import (
 from src.backtesting.strategy_comparison import (
     THRESHOLD_REBALANCING_NAME,
 )
+from src.database.repositories import RecordNotFoundError
 from src.llm.language_model import LanguageModelProtocol
 from src.llm.prompt_builder import PromptBuilder
+from src.services.rebalance_application_service import (
+    RebalanceApplicationService,
+    RebalanceExecutionError,
+    RebalancePersistenceError,
+)
 
 router = APIRouter()
 
@@ -750,4 +760,53 @@ def preview_prompt_endpoint(
         max_output_tokens=(
             language_model_request.max_output_tokens
         ),
+    )
+
+
+@router.post(
+    "/portfolios/{portfolio_id}/rebalance",
+    response_model=DatabaseRebalanceResponse,
+    tags=["Rebalancing"],
+    summary="Rebalance and persist an existing portfolio",
+)
+def rebalance_stored_portfolio(
+    portfolio_id: str,
+    request: DatabaseRebalanceRequest,
+    service: RebalanceApplicationService = Depends(
+        get_rebalance_application_service
+    ),
+) -> DatabaseRebalanceResponse:
+    """Run and persist rebalancing for a stored portfolio."""
+
+    try:
+        result = service.execute_rebalance(
+            portfolio_id=portfolio_id,
+            portfolio_value=Decimal(
+                str(request.portfolio_value)
+            ),
+            transaction_cost_rate=Decimal(
+                str(request.transaction_cost_rate)
+            ),
+        )
+    except RecordNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+    except (
+        RebalanceExecutionError,
+        RebalancePersistenceError,
+    ) as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The rebalance workflow could not be completed.",
+        ) from error
+
+    return DatabaseRebalanceResponse(
+        status=result.workflow_status,
+        portfolio_id=result.portfolio_id,
+        run_id=result.run_id,
+        trade_count=result.trade_count,
+        database_run_id=result.database_run_id,
+        message=result.workflow_message,
     )

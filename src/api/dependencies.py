@@ -24,13 +24,25 @@ from src.llm.gemini_language_model import (
     DEFAULT_GEMINI_MODEL,
     GEMINI_API_KEY_ENV,
 )
+from fastapi import Depends
+from sqlalchemy.orm import Session
 from src.llm.language_model import LanguageModelProtocol
 from src.llm.language_model_factory import (
     LanguageModelProvider,
     create_language_model,
 )
 from src.llm.prompt_builder import PromptBuilder
-
+from src.database.persistence_service import (
+    RebalancePersistenceService,
+)
+from src.database.repositories import (
+    PortfolioRepository,
+    RebalanceRunRepository,
+)
+from src.database.session import get_database_session
+from src.services.rebalance_application_service import (
+    RebalanceApplicationService,
+)
 
 ENABLE_PROMPT_PREVIEW_ENV = "ENABLE_PROMPT_PREVIEW"
 
@@ -170,3 +182,28 @@ def is_prompt_preview_enabled() -> bool:
     """Return whether development-only prompt preview is enabled."""
 
     return os.getenv(ENABLE_PROMPT_PREVIEW_ENV) == "true"
+
+
+def get_rebalance_application_service(
+    session: Session = Depends(get_database_session),
+    orchestrator: OrchestratorAgent = Depends(
+        get_orchestrator_agent
+    ),
+) -> RebalanceApplicationService:
+    """Build the database-backed rebalance service."""
+
+    portfolio_repository = PortfolioRepository(session)
+
+    rebalance_run_repository = RebalanceRunRepository(
+        session
+    )
+
+    persistence_service = RebalancePersistenceService(
+        rebalance_run_repository
+    )
+
+    return RebalanceApplicationService(
+        portfolio_repository=portfolio_repository,
+        orchestrator=orchestrator,
+        persistence_service=persistence_service,
+    )

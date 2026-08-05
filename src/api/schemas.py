@@ -480,3 +480,43 @@ class PromptPreviewResponse(BaseModel):
     user_prompt: str
     temperature: float
     max_output_tokens: int
+
+
+class DatabaseRebalanceRequest(BaseModel):
+    """Represent a request to rebalance a stored portfolio."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    portfolio_value: float = Field(
+        gt=0.0,
+        description=(
+            "Portfolio value used for the rebalance workflow."
+        ),
+    )
+    transaction_cost_rate: float = Field(
+        default=0.002,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Transaction-cost rate expressed as a decimal."
+        ),
+    )
+
+
+class DatabaseRebalanceResponse(BaseModel):
+    """Represent a persisted rebalance API response."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    status: str
+    portfolio_id: str
+    run_id: str
+    trade_count: int
+    database_run_id: int
+    message: str
