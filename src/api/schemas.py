@@ -18,6 +18,19 @@ class HealthResponse(BaseModel):
     service: str
 
 
+class ReadinessResponse(BaseModel):
+    """Represent the API readiness-check response."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    status: str
+    database: str
+    configuration: str
+
+
 class RebalanceRequest(BaseModel):
     """
     Represent an API request to run portfolio rebalancing.

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from functools import lru_cache
 import os
 from typing import Protocol
@@ -35,11 +35,16 @@ from src.llm.prompt_builder import PromptBuilder
 from src.database.persistence_service import (
     RebalancePersistenceService,
 )
+from src.database.config import get_database_url
 from src.database.repositories import (
     PortfolioRepository,
     RebalanceRunRepository,
 )
-from src.database.session import get_database_session
+from src.database.session import (
+    DatabaseSessionFactory,
+    get_database_session,
+    get_database_session_factory,
+)
 from src.services.rebalance_application_service import (
     RebalanceApplicationService,
 )
@@ -182,6 +187,19 @@ def get_llm_health_status() -> dict[str, object]:
         "configured": configured,
         "live_check_performed": False,
     }
+
+
+def get_database_url_reader() -> Callable[[], str]:
+    """Return the configured database URL reader."""
+
+    return get_database_url
+
+
+def get_readiness_session_factory_reader(
+) -> Callable[[], DatabaseSessionFactory]:
+    """Return the existing database session factory reader."""
+
+    return get_database_session_factory
 
 
 def is_prompt_preview_enabled() -> bool:

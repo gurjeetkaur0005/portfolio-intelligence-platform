@@ -9,6 +9,7 @@ from src.api.schemas import (
     ErrorResponse,
     HealthResponse,
     PortfolioExplanationResponse,
+    ReadinessResponse,
     RebalanceExplanationResponse,
     RebalanceRequest,
 )
@@ -37,6 +38,18 @@ def test_error_response_stores_safe_error_contract() -> None:
     assert response.code == "record_not_found"
     assert response.message == "Portfolio was not found."
     assert response.status == 404
+
+
+def test_readiness_response_stores_expected_values() -> None:
+    response = ReadinessResponse(
+        status="ready",
+        database="connected",
+        configuration="valid",
+    )
+
+    assert response.status == "ready"
+    assert response.database == "connected"
+    assert response.configuration == "valid"
 
 
 def test_rebalance_request_uses_defaults() -> None:
