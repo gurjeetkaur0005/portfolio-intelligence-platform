@@ -85,6 +85,33 @@ class PortfolioRepository:
 
         return client
 
+    def stage_client(
+        self,
+        *,
+        client_id: str,
+        risk_category: str,
+    ) -> ClientModel:
+        """
+        Add one client to the active transaction without committing.
+
+        This is intended for workflows that own a larger transaction.
+        """
+
+        client = ClientModel(
+            client_id=_validate_non_empty_string(
+                client_id,
+                "client_id",
+            ),
+            risk_category=_validate_non_empty_string(
+                risk_category,
+                "risk_category",
+            ),
+        )
+
+        self._session.add(client)
+
+        return client
+
     def get_client_by_business_id(
         self,
         client_id: str,
@@ -164,6 +191,46 @@ class PortfolioRepository:
         client.portfolios.append(portfolio)
 
         self._save(portfolio)
+
+        return portfolio
+
+    def stage_portfolio(
+        self,
+        *,
+        client: ClientModel,
+        portfolio_id: str,
+        portfolio_value: Decimal,
+        currency: str = "USD",
+    ) -> PortfolioModel:
+        """
+        Add one portfolio to the active transaction without committing.
+
+        This is intended for workflows that own a larger transaction.
+        """
+
+        if not isinstance(client, ClientModel):
+            raise TypeError(
+                "client must be a ClientModel."
+            )
+
+        normalized_portfolio_value = (
+            _validate_positive_decimal(
+                portfolio_value,
+                "portfolio_value",
+            )
+        )
+
+        portfolio = PortfolioModel(
+            portfolio_id=_validate_non_empty_string(
+                portfolio_id,
+                "portfolio_id",
+            ),
+            portfolio_value=normalized_portfolio_value,
+            currency=_validate_currency(currency),
+        )
+
+        client.portfolios.append(portfolio)
+        self._session.add(portfolio)
 
         return portfolio
 
@@ -286,6 +353,45 @@ class PortfolioRepository:
         )
 
         self._save(portfolio)
+
+        return portfolio
+
+    def stage_replace_holdings(
+        self,
+        *,
+        portfolio: PortfolioModel,
+        holdings: Sequence[
+            PortfolioHoldingModel
+        ],
+    ) -> PortfolioModel:
+        """
+        Replace holdings in the active transaction without committing.
+
+        This is intended for workflows that own a larger transaction.
+        """
+
+        if not isinstance(portfolio, PortfolioModel):
+            raise TypeError(
+                "portfolio must be a PortfolioModel."
+            )
+
+        validated_holdings = list(holdings)
+
+        for holding in validated_holdings:
+            if not isinstance(
+                holding,
+                PortfolioHoldingModel,
+            ):
+                raise TypeError(
+                    "holdings must contain "
+                    "PortfolioHoldingModel objects."
+                )
+
+        portfolio.holdings.clear()
+        portfolio.holdings.extend(
+            validated_holdings
+        )
+        self._session.add(portfolio)
 
         return portfolio
 
