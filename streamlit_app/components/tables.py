@@ -40,3 +40,58 @@ def render_portfolio_table(
         use_container_width=True,
         hide_index=True,
     )
+
+def render_holdings_table(
+    holdings: list[dict[str, Any]],
+) -> None:
+    """Render portfolio holdings in a user-friendly table."""
+
+    if not holdings:
+        st.info("No holdings were returned by the backend.")
+        return
+
+    dataframe = pd.DataFrame(holdings)
+
+    preferred_columns = [
+        "asset",
+        "current_weight",
+        "current_value",
+        "cost_basis",
+    ]
+
+    visible_columns = [
+        column
+        for column in preferred_columns
+        if column in dataframe.columns
+    ]
+
+    if visible_columns:
+        dataframe = dataframe[visible_columns].copy()
+
+    if "current_weight" in dataframe.columns:
+        dataframe["current_weight"] = (
+            dataframe["current_weight"] * 100
+        )
+
+    st.dataframe(
+        dataframe,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "asset": st.column_config.TextColumn(
+                "Asset Class",
+            ),
+            "current_weight": st.column_config.NumberColumn(
+                "Current Weight",
+                format="%.2f%%",
+            ),
+            "current_value": st.column_config.NumberColumn(
+                "Current Value",
+                format="$%.2f",
+            ),
+            "cost_basis": st.column_config.NumberColumn(
+                "Cost Basis",
+                format="$%.2f",
+            ),
+        },
+    )

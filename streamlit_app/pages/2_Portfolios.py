@@ -11,7 +11,13 @@ from streamlit_app.services.api_client import (
     FastApiClient,
 )
 from streamlit_app.components.metrics import format_currency
-
+from streamlit_app.components.tables import (
+    render_holdings_table,
+)
+from streamlit_app.components.charts import (
+    render_allocation_donut_chart,
+    render_holding_value_bar_chart,
+)
 def _build_client() -> FastApiClient:
     """Create the reusable API client."""
 
@@ -112,6 +118,22 @@ def main() -> None:
             value=str(portfolio["holding_count"]),
         )
 
+    st.subheader("Current Holdings")
+
+    holdings = portfolio.get("holdings")
+
+    if isinstance(holdings, list):
+        render_holdings_table(holdings)
+    else:
+        st.warning("Portfolio holdings are unavailable.")
+    st.subheader("Current Allocation")
+
+    if isinstance(holdings, list):
+        render_allocation_donut_chart(holdings)
+    st.subheader("Holding Values")
+
+    if isinstance(holdings, list):
+        render_holding_value_bar_chart(holdings)
 
 if __name__ == "__main__":
     main()
