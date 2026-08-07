@@ -319,7 +319,10 @@ class FastApiClient:
         self._raise_for_status(response)
 
         return self._decode_json_object(response)
+    def get_llm_health(self) -> JsonObject:
+        """Return language-model health information."""
 
+        return self._get_json("/llm/health")
     @staticmethod
     def _raise_for_status(
         response: Response,
@@ -581,3 +584,4 @@ class FastApiClient:
             )
 
         return float(value)
+    
