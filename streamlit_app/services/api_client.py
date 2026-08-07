@@ -179,6 +179,39 @@ class FastApiClient:
             f"/rebalances/{normalized_run_id}"
         )
 
+    def list_portfolio_rebalances(
+        self,
+        *,
+        portfolio_id: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> PaginatedResponse:
+        """Return persisted rebalance runs for one portfolio."""
+
+        normalized_portfolio_id = portfolio_id.strip()
+
+        if not normalized_portfolio_id:
+            raise ValueError(
+                "portfolio_id must not be empty."
+            )
+
+        self._validate_pagination(
+            limit=limit,
+            offset=offset,
+        )
+
+        payload = self._get_json(
+            f"/portfolios/{normalized_portfolio_id}/rebalances",
+            params={
+                "limit": limit,
+                "offset": offset,
+            },
+        )
+
+        return self._parse_paginated_response(
+            payload
+        )
+
     def list_rebalance_trades(
         self,
         *,
