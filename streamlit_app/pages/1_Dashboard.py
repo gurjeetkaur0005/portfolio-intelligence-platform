@@ -55,9 +55,15 @@ def _extract_displayed_portfolio_value(
         if raw_value is None:
             raw_value = portfolio.get("total_value")
 
+        if not isinstance(
+            raw_value,
+            (int, float, str),
+        ) or isinstance(raw_value, bool):
+            continue
+
         try:
             total_value += float(raw_value)
-        except (TypeError, ValueError):
+        except ValueError:
             continue
 
         found_value = True

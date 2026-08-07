@@ -1,23 +1,28 @@
 from __future__ import annotations
 
+from typing import Any
+
 import streamlit as st
 
+from streamlit_app.components.charts import (
+    render_allocation_donut_chart,
+    render_holding_value_bar_chart,
+)
+from streamlit_app.components.metrics import format_currency
 from streamlit_app.components.navigation import (
     render_sidebar,
+)
+from streamlit_app.components.tables import (
+    render_holdings_table,
 )
 from streamlit_app.config import get_settings
 from streamlit_app.services.api_client import (
     ApiClientError,
     FastApiClient,
+    JsonObject,
 )
-from streamlit_app.components.metrics import format_currency
-from streamlit_app.components.tables import (
-    render_holdings_table,
-)
-from streamlit_app.components.charts import (
-    render_allocation_donut_chart,
-    render_holding_value_bar_chart,
-)
+
+
 def _build_client() -> FastApiClient:
     """Create the reusable API client."""
 
@@ -27,6 +32,25 @@ def _build_client() -> FastApiClient:
         base_url=settings.api_base_url,
         timeout_seconds=settings.api_timeout_seconds,
     )
+
+
+def _extract_holdings(
+    portfolio: JsonObject,
+) -> list[dict[str, Any]] | None:
+    """Return portfolio holdings narrowed for UI renderers."""
+
+    raw_holdings = portfolio.get("holdings")
+
+    if not isinstance(raw_holdings, list):
+        return None
+
+    holdings: list[dict[str, Any]] = []
+
+    for holding in raw_holdings:
+        if isinstance(holding, dict):
+            holdings.append(dict(holding))
+
+    return holdings
 
 
 def main() -> None:
@@ -69,8 +93,8 @@ def main() -> None:
         options=portfolio_ids,
     )
     st.success(
-            f"Selected Portfolio: {selected_portfolio}"
-        )
+        f"Selected Portfolio: {selected_portfolio}"
+    )
     try:
         portfolio = client.get_portfolio(
             selected_portfolio,
@@ -80,7 +104,7 @@ def main() -> None:
             f"Could not load portfolio details: {exc}"
         )
         return
-    
+
     st.subheader("Portfolio Summary")
 
     portfolio_id_column, client_id_column = st.columns(2)
@@ -102,8 +126,9 @@ def main() -> None:
     with value_column:
         st.metric(
             label="Portfolio Value",
-                value=format_currency(
-                portfolio["portfolio_value"],)
+            value=format_currency(
+                portfolio["portfolio_value"],
+            ),
         )
 
     with currency_column:
@@ -120,20 +145,23 @@ def main() -> None:
 
     st.subheader("Current Holdings")
 
-    holdings = portfolio.get("holdings")
+    holdings = _extract_holdings(portfolio)
 
-    if isinstance(holdings, list):
+    if holdings is not None:
         render_holdings_table(holdings)
     else:
         st.warning("Portfolio holdings are unavailable.")
+
     st.subheader("Current Allocation")
 
-    if isinstance(holdings, list):
+    if holdings is not None:
         render_allocation_donut_chart(holdings)
+
     st.subheader("Holding Values")
 
-    if isinstance(holdings, list):
+    if holdings is not None:
         render_holding_value_bar_chart(holdings)
+
 
 if __name__ == "__main__":
     main()
