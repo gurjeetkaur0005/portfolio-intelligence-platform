@@ -10,7 +10,7 @@ from streamlit_app.services.api_client import (
     ApiClientError,
     FastApiClient,
 )
-
+from streamlit_app.components.metrics import format_currency
 
 def _build_client() -> FastApiClient:
     """Create the reusable API client."""
@@ -62,10 +62,55 @@ def main() -> None:
         label="Select Portfolio",
         options=portfolio_ids,
     )
-
     st.success(
-        f"Selected Portfolio: {selected_portfolio}"
-    )
+            f"Selected Portfolio: {selected_portfolio}"
+        )
+    try:
+        portfolio = client.get_portfolio(
+            selected_portfolio,
+        )
+    except ApiClientError as exc:
+        st.error(
+            f"Could not load portfolio details: {exc}"
+        )
+        return
+    
+    st.subheader("Portfolio Summary")
+
+    portfolio_id_column, client_id_column = st.columns(2)
+    value_column, currency_column = st.columns(2)
+    holding_column, _ = st.columns(2)
+
+    with portfolio_id_column:
+        st.metric(
+            label="Portfolio ID",
+            value=str(portfolio["portfolio_id"]),
+        )
+
+    with client_id_column:
+        st.metric(
+            label="Client ID",
+            value=str(portfolio["client_id"]),
+        )
+
+    with value_column:
+        st.metric(
+            label="Portfolio Value",
+                value=format_currency(
+                portfolio["portfolio_value"],)
+        )
+
+    with currency_column:
+        st.metric(
+            label="Currency",
+            value=str(portfolio["currency"]),
+        )
+
+    with holding_column:
+        st.metric(
+            label="Holdings",
+            value=str(portfolio["holding_count"]),
+        )
 
 
 if __name__ == "__main__":
