@@ -1,21 +1,25 @@
 from __future__ import annotations
 
-from typing import Any
-
-import streamlit as st
-
-from streamlit_app.components.metrics import (
-    format_currency,
-    render_metric_card,
+from streamlit_app.components.cards import render_kpi_card
+from streamlit_app.components.charts import (
+    render_portfolio_value_distribution,
 )
+from streamlit_app.components.metrics import format_currency
 from streamlit_app.components.navigation import render_sidebar
+from streamlit_app.components.status import (
+    render_status_badge,
+    status_label,
+)
 from streamlit_app.components.tables import render_portfolio_table
 from streamlit_app.config import get_settings
 from streamlit_app.services.api_client import (
     ApiClientError,
     FastApiClient,
+    JsonObject,
     PaginatedResponse,
+    JsonValue,
 )
+from streamlit_app.services.styles import load_global_styles
 
 
 def _build_client() -> FastApiClient:
@@ -29,80 +33,99 @@ def _build_client() -> FastApiClient:
     )
 
 
-def _extract_status(payload: dict[str, Any]) -> str:
-    """Extract a readable status from a health response."""
+def _status_value(
+    payload: JsonObject | None,
+) -> str:
+    """Return a readable health status."""
 
-    for key in ("status", "state", "message"):
-        value = payload.get(key)
+    if payload is None:
+        return "Unavailable"
 
-        if isinstance(value, str) and value.strip():
-            return value.strip().title()
+    status = payload.get("status")
+
+    if isinstance(status, str):
+        return status_label(status)
 
     return "Available"
 
 
-def _extract_displayed_portfolio_value(
+def _numeric_value(
+    value: JsonValue,
+) -> float | None:
+    """Return a float for valid numeric JSON values."""
+
+    if isinstance(value, bool):
+        return None
+
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+
+    return None
+
+
+def _displayed_portfolio_total(
     portfolio_page: PaginatedResponse,
-) -> str:
-    """Calculate the value of portfolios on the current page only."""
+) -> float | None:
+    """Return the visible portfolio-value total."""
 
     total_value = 0.0
     found_value = False
 
     for portfolio in portfolio_page.items:
-        raw_value = portfolio.get("portfolio_value")
+        value = _numeric_value(
+            portfolio.get("portfolio_value")
+        )
 
-        if raw_value is None:
-            raw_value = portfolio.get("total_value")
-
-        if not isinstance(
-            raw_value,
-            (int, float, str),
-        ) or isinstance(raw_value, bool):
+        if value is None:
             continue
 
-        try:
-            total_value += float(raw_value)
-        except ValueError:
-            continue
-
+        total_value += value
         found_value = True
 
     if not found_value:
-        return "Not available"
+        return None
 
-    return format_currency(total_value)
+    return total_value
 
 
-def _render_system_status(
-    health_payload: dict[str, Any] | None,
-    readiness_payload: dict[str, Any] | None,
+def _render_system_summary(
+    *,
+    health_payload: JsonObject | None,
+    readiness_payload: JsonObject | None,
 ) -> None:
-    """Render FastAPI and PostgreSQL status cards."""
+    """Render compact system status details."""
 
-    st.subheader("System Status")
+    import streamlit as st
 
-    health_column, readiness_column = st.columns(2)
+    with st.container(border=True):
+        st.markdown("#### System Status")
 
-    with health_column:
-        if health_payload is None:
-            st.error("FastAPI health check failed.")
-        else:
-            health_status = _extract_status(health_payload)
-            st.success(f"FastAPI: {health_status}")
+        st.write("FastAPI")
+        render_status_badge(
+            _status_value(health_payload)
+        )
 
-    with readiness_column:
-        if readiness_payload is None:
-            st.error("PostgreSQL readiness check failed.")
-        else:
-            readiness_status = _extract_status(
-                readiness_payload
-            )
-            st.success(f"Readiness: {readiness_status}")
+        st.write("PostgreSQL")
+        render_status_badge(
+            _status_value(readiness_payload)
+        )
+
+        st.caption(
+            "Status is loaded from the FastAPI liveness and "
+            "readiness endpoints."
+        )
 
 
 def main() -> None:
     """Render the database-backed Dashboard page."""
+
+    import streamlit as st
 
     settings = get_settings()
 
@@ -111,18 +134,24 @@ def main() -> None:
         page_icon="📊",
         layout="wide",
     )
+    load_global_styles()
 
     render_sidebar(settings)
 
-    st.title("Dashboard")
-    st.caption(
-        "Live information loaded from the existing FastAPI backend."
+    st.title("PortfolioMind")
+    st.markdown(
+        (
+            "<div class='pm-page-caption'>"
+            "Portfolio intelligence and rebalancing overview"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
     )
 
     client = _build_client()
 
-    health_payload: dict[str, Any] | None = None
-    readiness_payload: dict[str, Any] | None = None
+    health_payload: JsonObject | None = None
+    readiness_payload: JsonObject | None = None
     portfolio_page: PaginatedResponse | None = None
 
     try:
@@ -143,58 +172,69 @@ def main() -> None:
     except ApiClientError as exc:
         st.error(f"Could not load portfolios: {exc}")
 
-    _render_system_status(
-        health_payload=health_payload,
-        readiness_payload=readiness_payload,
+    portfolio_total = (
+        _displayed_portfolio_total(portfolio_page)
+        if portfolio_page is not None
+        else None
     )
 
-    st.subheader("Portfolio Summary")
+    first, second, third, fourth = st.columns(4)
 
-    portfolio_count_column, value_column, status_column = (
-        st.columns(3)
-    )
-
-    with portfolio_count_column:
-        render_metric_card(
-            label="Portfolios Loaded",
+    with first:
+        render_kpi_card(
+            title="Portfolios",
             value=(
                 str(portfolio_page.count)
                 if portfolio_page is not None
                 else "Unavailable"
             ),
-            help_text=(
-                "Number of portfolios returned in the current "
-                "paginated response."
-            ),
+            subtitle="Visible records in the current page.",
         )
 
-    with value_column:
-        render_metric_card(
-            label="Displayed Portfolio Value",
-            value=(
-                _extract_displayed_portfolio_value(
-                    portfolio_page
-                )
-                if portfolio_page is not None
-                else "Unavailable"
-            ),
-            help_text=(
-                "Sum of portfolio values visible on this page. "
-                "This is not a database-wide total."
-            ),
+    with second:
+        render_kpi_card(
+            title="Displayed Portfolio Value",
+            value=format_currency(portfolio_total),
+            subtitle="Sum of currently loaded portfolios.",
         )
+
+    with third:
+        render_kpi_card(
+            title="FastAPI Status",
+            value=_status_value(health_payload),
+        )
+
+    with fourth:
+        render_kpi_card(
+            title="PostgreSQL Status",
+            value=_status_value(readiness_payload),
+        )
+
+    st.divider()
+
+    chart_column, status_column = st.columns(
+        [
+            2,
+            1,
+        ]
+    )
+
+    with chart_column:
+        with st.container(border=True):
+            if portfolio_page is None:
+                st.info(
+                    "Portfolio values will appear when the "
+                    "FastAPI backend is reachable."
+                )
+            else:
+                render_portfolio_value_distribution(
+                    portfolio_page.items
+                )
 
     with status_column:
-        backend_status = (
-            "Operational"
-            if health_payload is not None
-            and readiness_payload is not None
-            else "Degraded"
-        )
-
-        render_metric_card(
-            label="Backend Status",
-            value=backend_status,
+        _render_system_summary(
+            health_payload=health_payload,
+            readiness_payload=readiness_payload,
         )
 
     st.subheader("Stored Portfolios")

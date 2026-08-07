@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import streamlit as st
-
+from streamlit_app.components.cards import render_kpi_card
 from streamlit_app.components.charts import (
     render_allocation_donut_chart,
     render_holding_value_bar_chart,
@@ -21,6 +20,7 @@ from streamlit_app.services.api_client import (
     FastApiClient,
     JsonObject,
 )
+from streamlit_app.services.styles import load_global_styles
 
 
 def _build_client() -> FastApiClient:
@@ -53,8 +53,26 @@ def _extract_holdings(
     return holdings
 
 
+def _portfolio_ids(
+    portfolios: list[JsonObject],
+) -> list[str]:
+    """Return valid portfolio identifiers."""
+
+    portfolio_ids: list[str] = []
+
+    for portfolio in portfolios:
+        portfolio_id = portfolio.get("portfolio_id")
+
+        if isinstance(portfolio_id, str) and portfolio_id.strip():
+            portfolio_ids.append(portfolio_id)
+
+    return portfolio_ids
+
+
 def main() -> None:
     """Render the Portfolio Details page."""
+
+    import streamlit as st
 
     settings = get_settings()
 
@@ -63,10 +81,19 @@ def main() -> None:
         page_icon="📊",
         layout="wide",
     )
+    load_global_styles()
 
     render_sidebar(settings)
 
     st.title("Portfolio Details")
+    st.markdown(
+        (
+            "<div class='pm-page-caption'>"
+            "Inspect portfolio composition loaded from FastAPI."
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
 
     client = _build_client()
 
@@ -76,13 +103,7 @@ def main() -> None:
         st.error(str(exc))
         return
 
-    portfolio_ids = []
-
-    for portfolio in portfolio_page.items:
-        portfolio_id = portfolio.get("portfolio_id")
-
-        if isinstance(portfolio_id, str):
-            portfolio_ids.append(portfolio_id)
+    portfolio_ids = _portfolio_ids(portfolio_page.items)
 
     if not portfolio_ids:
         st.info("No portfolios found.")
@@ -92,9 +113,11 @@ def main() -> None:
         label="Select Portfolio",
         options=portfolio_ids,
     )
-    st.success(
-        f"Selected Portfolio: {selected_portfolio}"
-    )
+
+    if not isinstance(selected_portfolio, str):
+        st.info("Select a portfolio to continue.")
+        return
+
     try:
         portfolio = client.get_portfolio(
             selected_portfolio,
@@ -105,62 +128,62 @@ def main() -> None:
         )
         return
 
-    st.subheader("Portfolio Summary")
+    holdings = _extract_holdings(portfolio)
 
-    portfolio_id_column, client_id_column = st.columns(2)
-    value_column, currency_column = st.columns(2)
-    holding_column, _ = st.columns(2)
+    st.subheader("Summary")
 
-    with portfolio_id_column:
-        st.metric(
-            label="Portfolio ID",
-            value=str(portfolio["portfolio_id"]),
-        )
+    first, second, third, fourth = st.columns(4)
 
-    with client_id_column:
-        st.metric(
-            label="Client ID",
-            value=str(portfolio["client_id"]),
-        )
-
-    with value_column:
-        st.metric(
-            label="Portfolio Value",
+    with first:
+        render_kpi_card(
+            title="Portfolio Value",
             value=format_currency(
-                portfolio["portfolio_value"],
+                portfolio.get("portfolio_value")
             ),
         )
 
-    with currency_column:
-        st.metric(
-            label="Currency",
-            value=str(portfolio["currency"]),
+    with second:
+        render_kpi_card(
+            title="Client ID",
+            value=str(portfolio.get("client_id", "Unavailable")),
         )
 
-    with holding_column:
-        st.metric(
-            label="Holdings",
-            value=str(portfolio["holding_count"]),
+    with third:
+        render_kpi_card(
+            title="Holdings",
+            value=str(portfolio.get("holding_count", "Unavailable")),
         )
+
+    with fourth:
+        render_kpi_card(
+            title="Currency",
+            value=str(portfolio.get("currency", "Unavailable")),
+        )
+
+    st.divider()
+
+    left, right = st.columns(2)
+
+    with left:
+        with st.container(border=True):
+            if holdings is None:
+                st.warning("Portfolio holdings are unavailable.")
+            else:
+                render_allocation_donut_chart(holdings)
+
+    with right:
+        with st.container(border=True):
+            if holdings is None:
+                st.warning("Portfolio holdings are unavailable.")
+            else:
+                render_holding_value_bar_chart(holdings)
 
     st.subheader("Current Holdings")
 
-    holdings = _extract_holdings(portfolio)
-
-    if holdings is not None:
-        render_holdings_table(holdings)
-    else:
+    if holdings is None:
         st.warning("Portfolio holdings are unavailable.")
-
-    st.subheader("Current Allocation")
-
-    if holdings is not None:
-        render_allocation_donut_chart(holdings)
-
-    st.subheader("Holding Values")
-
-    if holdings is not None:
-        render_holding_value_bar_chart(holdings)
+    else:
+        render_holdings_table(holdings)
 
 
 if __name__ == "__main__":

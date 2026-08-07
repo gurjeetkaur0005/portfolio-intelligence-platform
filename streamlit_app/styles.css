@@ -1,0 +1,108 @@
+:root {
+    --pm-bg: #f6f7f9;
+    --pm-surface: #ffffff;
+    --pm-border: #d9dee7;
+    --pm-text: #1f2937;
+    --pm-muted: #667085;
+    --pm-accent: #1f7a8c;
+    --pm-positive: #0f766e;
+    --pm-warning: #b7791f;
+    --pm-negative: #b42318;
+    --pm-neutral: #475467;
+    --pm-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.block-container {
+    padding-top: 2rem;
+    padding-bottom: 3rem;
+}
+
+h1, h2, h3 {
+    color: var(--pm-text);
+    letter-spacing: 0;
+}
+
+[data-testid="stMetric"] {
+    background: var(--pm-surface);
+    border: 1px solid var(--pm-border);
+    border-radius: 8px;
+    box-shadow: var(--pm-shadow);
+    padding: 1rem 1.1rem;
+}
+
+[data-testid="stMetricLabel"] {
+    color: var(--pm-muted);
+}
+
+[data-testid="stMetricValue"] {
+    color: var(--pm-text);
+}
+
+.pm-page-caption {
+    color: var(--pm-muted);
+    font-size: 0.98rem;
+    margin-bottom: 1rem;
+}
+
+.pm-status-badge {
+    display: inline-block;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 650;
+    line-height: 1;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid transparent;
+}
+
+.pm-status-positive {
+    color: var(--pm-positive);
+    background: #ecfdf3;
+    border-color: #abefc6;
+}
+
+.pm-status-warning {
+    color: var(--pm-warning);
+    background: #fffaeb;
+    border-color: #fedf89;
+}
+
+.pm-status-negative {
+    color: var(--pm-negative);
+    background: #fef3f2;
+    border-color: #fecdca;
+}
+
+.pm-status-neutral {
+    color: var(--pm-neutral);
+    background: #f2f4f7;
+    border-color: #d0d5dd;
+}
+
+.pm-section-card {
+    background: var(--pm-surface);
+    border: 1px solid var(--pm-border);
+    border-radius: 8px;
+    box-shadow: var(--pm-shadow);
+    padding: 1rem;
+}
+
+.pm-key-value {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.35rem 0;
+    border-bottom: 1px solid rgba(217, 222, 231, 0.6);
+}
+
+.pm-key-value span {
+    color: var(--pm-muted);
+    font-size: 0.9rem;
+}
+
+.pm-key-value strong {
+    color: var(--pm-text);
+    font-size: 0.94rem;
+    font-weight: 650;
+    text-align: right;
+}
