@@ -348,6 +348,7 @@ class PortfolioRepository:
                 )
 
         portfolio.holdings.clear()
+        self._session.flush()
         portfolio.holdings.extend(
             validated_holdings
         )
@@ -388,6 +389,7 @@ class PortfolioRepository:
                 )
 
         portfolio.holdings.clear()
+        self._session.flush()
         portfolio.holdings.extend(
             validated_holdings
         )
@@ -560,6 +562,33 @@ class RebalanceRunRepository:
 
         return rebalance_run
 
+    def require_run_database_id(
+        self,
+        run_id: str,
+    ) -> int:
+        """Return a run database ID without loading its full graph."""
+
+        normalized_run_id = _validate_non_empty_string(
+            run_id,
+            "run_id",
+        )
+
+        statement = (
+            select(RebalanceRunModel.id)
+            .where(
+                RebalanceRunModel.run_id
+                == normalized_run_id
+            )
+        )
+        database_id = self._session.scalar(statement)
+
+        if database_id is None:
+            raise RecordNotFoundError(
+                f"Rebalance run {run_id!r} was not found."
+            )
+
+        return database_id
+
     def list_trades(
         self,
         run_id: str,
@@ -569,7 +598,7 @@ class RebalanceRunRepository:
     ) -> list[TradeModel]:
         """Return all trades belonging to one rebalance run."""
 
-        rebalance_run = self.require_by_run_id(
+        rebalance_run_id = self.require_run_database_id(
             run_id
         )
         _validate_pagination(limit=limit, offset=offset)
@@ -578,7 +607,7 @@ class RebalanceRunRepository:
             select(TradeModel)
             .where(
                 TradeModel.rebalance_run_id
-                == rebalance_run.id
+                == rebalance_run_id
             )
             .options(
                 selectinload(
@@ -644,7 +673,7 @@ class RebalanceRunRepository:
     ) -> list[AuditRecordModel]:
         """Return audit records for one rebalance run."""
 
-        rebalance_run = self.require_by_run_id(
+        rebalance_run_id = self.require_run_database_id(
             run_id
         )
         _validate_pagination(limit=limit, offset=offset)
@@ -654,7 +683,7 @@ class RebalanceRunRepository:
             .join(TradeModel)
             .where(
                 TradeModel.rebalance_run_id
-                == rebalance_run.id
+                == rebalance_run_id
             )
             .options(
                 selectinload(

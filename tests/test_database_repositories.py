@@ -277,6 +277,60 @@ def test_repository_replaces_holdings(
     assert loaded.holdings[0].asset == "cash"
 
 
+def test_repository_replaces_holdings_with_same_asset(
+    database_session: Session,
+) -> None:
+    repository = PortfolioRepository(
+        database_session
+    )
+
+    client = repository.create_client(
+        client_id="C00001",
+        risk_category="balanced",
+    )
+
+    portfolio = repository.create_portfolio(
+        client=client,
+        portfolio_id="P00001",
+        portfolio_value=Decimal("1000000.00"),
+    )
+    repository.replace_holdings(
+        portfolio=portfolio,
+        holdings=[
+            PortfolioHoldingModel(
+                asset="cash",
+                current_weight=Decimal("0.0500000000"),
+                current_value=Decimal("50000.00"),
+                cost_basis=Decimal("50000.00"),
+            )
+        ],
+    )
+
+    repository.replace_holdings(
+        portfolio=portfolio,
+        holdings=[
+            PortfolioHoldingModel(
+                asset="cash",
+                current_weight=Decimal("0.1000000000"),
+                current_value=Decimal("100000.00"),
+                cost_basis=Decimal("90000.00"),
+            )
+        ],
+    )
+
+    loaded = (
+        repository.require_portfolio_by_business_id(
+            "P00001"
+        )
+    )
+
+    assert len(loaded.holdings) == 1
+    assert loaded.holdings[0].asset == "cash"
+    assert loaded.holdings[0].current_weight == Decimal(
+        "0.1000000000"
+    )
+
+
 def test_rebalance_repository_saves_complete_graph(
     database_session: Session,
 ) -> None:
@@ -383,6 +437,131 @@ def test_rebalance_repository_lists_trades(
 
     assert len(trades) == 1
     assert trades[0].asset == "domestic_equity"
+
+
+def test_rebalance_repository_resolves_run_database_id(
+    database_session: Session,
+) -> None:
+    portfolio_repository = PortfolioRepository(
+        database_session
+    )
+    client = portfolio_repository.create_client(
+        client_id="C00001",
+        risk_category="balanced",
+    )
+    portfolio = portfolio_repository.create_portfolio(
+        client=client,
+        portfolio_id="P00001",
+        portfolio_value=Decimal("1000000.00"),
+    )
+    repository = RebalanceRunRepository(
+        database_session
+    )
+    saved_run = repository.save_rebalance_run(
+        _build_rebalance_run(portfolio)
+    )
+
+    assert (
+        repository.require_run_database_id("RUN000001")
+        == saved_run.id
+    )
+
+
+def test_rebalance_repository_run_database_id_raises_when_missing(
+    database_session: Session,
+) -> None:
+    repository = RebalanceRunRepository(
+        database_session
+    )
+
+    with pytest.raises(RecordNotFoundError):
+        repository.require_run_database_id("MISSING")
+
+
+def test_list_trades_uses_lightweight_run_lookup(
+    database_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    portfolio_repository = PortfolioRepository(
+        database_session
+    )
+    client = portfolio_repository.create_client(
+        client_id="C00001",
+        risk_category="balanced",
+    )
+    portfolio = portfolio_repository.create_portfolio(
+        client=client,
+        portfolio_id="P00001",
+        portfolio_value=Decimal("1000000.00"),
+    )
+    repository = RebalanceRunRepository(
+        database_session
+    )
+    repository.save_rebalance_run(
+        _build_rebalance_run(portfolio)
+    )
+
+    def fail_full_graph_lookup(run_id: str) -> RebalanceRunModel:
+        raise AssertionError(
+            f"Unexpected full graph lookup for {run_id}."
+        )
+
+    monkeypatch.setattr(
+        repository,
+        "require_by_run_id",
+        fail_full_graph_lookup,
+    )
+
+    trades = repository.list_trades(
+        "RUN000001",
+        limit=20,
+        offset=0,
+    )
+
+    assert len(trades) == 1
+
+
+def test_list_audit_records_uses_lightweight_run_lookup(
+    database_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    portfolio_repository = PortfolioRepository(
+        database_session
+    )
+    client = portfolio_repository.create_client(
+        client_id="C00001",
+        risk_category="balanced",
+    )
+    portfolio = portfolio_repository.create_portfolio(
+        client=client,
+        portfolio_id="P00001",
+        portfolio_value=Decimal("1000000.00"),
+    )
+    repository = RebalanceRunRepository(
+        database_session
+    )
+    repository.save_rebalance_run(
+        _build_rebalance_run(portfolio)
+    )
+
+    def fail_full_graph_lookup(run_id: str) -> RebalanceRunModel:
+        raise AssertionError(
+            f"Unexpected full graph lookup for {run_id}."
+        )
+
+    monkeypatch.setattr(
+        repository,
+        "require_by_run_id",
+        fail_full_graph_lookup,
+    )
+
+    audit_records = repository.list_audit_records(
+        "RUN000001",
+        limit=20,
+        offset=0,
+    )
+
+    assert len(audit_records) == 1
 
 
 def test_rebalance_repository_lists_runs_newest_first(

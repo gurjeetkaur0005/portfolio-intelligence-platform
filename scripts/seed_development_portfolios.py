@@ -35,6 +35,7 @@ class SeedResult:
     """Represent the outcome of a development seed run."""
 
     created: int
+    replaced: int
     skipped: int
     failed: int
 
@@ -66,13 +67,16 @@ def seed_development_portfolios(
             logger.exception("development_seed_failed")
             return SeedResult(
                 created=0,
+                replaced=0,
                 skipped=0,
                 failed=SEED_PORTFOLIO_COUNT,
             )
 
     logger.info(
-        "development_seed_complete created=%s skipped=%s failed=%s",
+        "development_seed_complete created=%s replaced=%s "
+        "skipped=%s failed=%s",
         result.created,
+        result.replaced,
         result.skipped,
         result.failed,
     )
@@ -91,24 +95,13 @@ def _seed_with_repository(
     )
 
     created = 0
+    replaced = 0
     skipped = 0
 
-    for portfolio_row in portfolios.itertuples(index=False):
+    for index, portfolio_row in enumerate(
+        portfolios.itertuples(index=False)
+    ):
         portfolio_id = str(portfolio_row.portfolio_id)
-
-        if (
-            repository.get_portfolio_by_business_id(
-                portfolio_id
-            )
-            is not None
-        ):
-            skipped += 1
-            logger.info(
-                "development_seed_portfolio_skipped "
-                "portfolio_id=%s",
-                portfolio_id,
-            )
-            continue
 
         client_row = _client_row_for_portfolio(
             client_profiles=client_profiles,
@@ -127,25 +120,66 @@ def _seed_with_repository(
             )
 
         portfolio_value = _portfolio_value_for_index(
-            created + skipped
+            index
         )
-        portfolio = repository.stage_portfolio(
-            client=client,
-            portfolio_id=portfolio_id,
+        holdings = _build_holdings(
+            portfolio_row=portfolio_row,
             portfolio_value=portfolio_value,
-            currency=DEFAULT_CURRENCY,
         )
-        repository.stage_replace_holdings(
-            portfolio=portfolio,
-            holdings=_build_holdings(
-                portfolio_row=portfolio_row,
-                portfolio_value=portfolio_value,
-            ),
+        existing_portfolio = (
+            repository.get_portfolio_by_business_id(
+                portfolio_id
+            )
         )
 
-        created += 1
+        if existing_portfolio is None:
+            portfolio = repository.stage_portfolio(
+                client=client,
+                portfolio_id=portfolio_id,
+                portfolio_value=portfolio_value,
+                currency=DEFAULT_CURRENCY,
+            )
+            repository.stage_replace_holdings(
+                portfolio=portfolio,
+                holdings=holdings,
+            )
+
+            created += 1
+            logger.info(
+                "development_seed_portfolio_created "
+                "portfolio_id=%s client_id=%s risk_category=%s",
+                portfolio_id,
+                client_id,
+                risk_category,
+            )
+            continue
+
+        if _portfolio_matches_seed(
+            portfolio=existing_portfolio,
+            client_id=client_id,
+            risk_category=risk_category,
+            portfolio_value=portfolio_value,
+            holdings=holdings,
+        ):
+            skipped += 1
+            logger.info(
+                "development_seed_portfolio_skipped "
+                "portfolio_id=%s",
+                portfolio_id,
+            )
+            continue
+
+        existing_portfolio.client = client
+        existing_portfolio.portfolio_value = portfolio_value
+        existing_portfolio.currency = DEFAULT_CURRENCY
+        repository.stage_replace_holdings(
+            portfolio=existing_portfolio,
+            holdings=holdings,
+        )
+
+        replaced += 1
         logger.info(
-            "development_seed_portfolio_created "
+            "development_seed_portfolio_replaced "
             "portfolio_id=%s client_id=%s risk_category=%s",
             portfolio_id,
             client_id,
@@ -154,9 +188,61 @@ def _seed_with_repository(
 
     return SeedResult(
         created=created,
+        replaced=replaced,
         skipped=skipped,
         failed=0,
     )
+
+
+def _portfolio_matches_seed(
+    *,
+    portfolio: Any,
+    client_id: str,
+    risk_category: str,
+    portfolio_value: Decimal,
+    holdings: list[PortfolioHoldingModel],
+) -> bool:
+    """Return whether an existing development record is current."""
+
+    if portfolio.client.client_id != client_id:
+        return False
+
+    if portfolio.client.risk_category != risk_category:
+        return False
+
+    if portfolio.portfolio_value != portfolio_value:
+        return False
+
+    if portfolio.currency != DEFAULT_CURRENCY:
+        return False
+
+    existing_holdings = {
+        holding.asset: holding
+        for holding in portfolio.holdings
+    }
+
+    if set(existing_holdings) != {
+        holding.asset
+        for holding in holdings
+    }:
+        return False
+
+    for holding in holdings:
+        existing_holding = existing_holdings[holding.asset]
+        if (
+            existing_holding.current_weight
+            != holding.current_weight
+        ):
+            return False
+        if (
+            existing_holding.current_value
+            != holding.current_value
+        ):
+            return False
+        if existing_holding.cost_basis != holding.cost_basis:
+            return False
+
+    return True
 
 
 def _build_seed_client_profiles() -> pd.DataFrame:

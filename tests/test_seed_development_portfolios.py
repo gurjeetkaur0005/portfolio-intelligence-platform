@@ -15,13 +15,24 @@ from src.api.main import app
 from src.database.base import DatabaseBase
 from src.database.models import (
     ClientModel,
+    PortfolioHoldingModel,
     PortfolioModel,
+)
+from src.database.repositories import (
+    PortfolioRepository,
+    RebalanceRunRepository,
 )
 from src.database.session import (
     DatabaseSessionFactory,
     create_database_engine,
     create_database_session_factory,
     get_database_session,
+)
+from src.services.rebalance_application_service import (
+    RebalanceApplicationService,
+)
+from src.database.persistence_service import (
+    RebalancePersistenceService,
 )
 
 
@@ -68,6 +79,7 @@ def test_seed_creates_ten_portfolios(
         )
 
     assert result.created == 10
+    assert result.replaced == 0
     assert result.skipped == 0
     assert result.failed == 0
     assert portfolio_count == 10
@@ -130,11 +142,67 @@ def test_running_seed_twice_creates_no_duplicates(
         )
 
     assert first_result.created == 10
+    assert first_result.replaced == 0
     assert second_result.created == 0
+    assert second_result.replaced == 0
     assert second_result.skipped == 10
     assert second_result.failed == 0
     assert portfolio_count == 10
     assert client_count == 10
+
+
+def test_seed_replaces_stale_development_portfolio(
+    session_factory: DatabaseSessionFactory,
+) -> None:
+    _insert_stale_development_portfolio(session_factory)
+
+    result = seed_script.seed_development_portfolios(
+        session_factory
+    )
+
+    portfolio = _load_portfolios(session_factory)[0]
+    holding_value_total = sum(
+        (
+            holding.current_value
+            for holding in portfolio.holdings
+        ),
+        Decimal("0"),
+    )
+
+    assert result.created == 9
+    assert result.replaced == 1
+    assert result.skipped == 0
+    assert result.failed == 0
+    assert portfolio.portfolio_id == "DEV-P00001"
+    assert portfolio.portfolio_value == Decimal("500000.00")
+    assert holding_value_total == portfolio.portfolio_value
+
+
+def test_refreshed_seeded_portfolio_rebalances_successfully(
+    session_factory: DatabaseSessionFactory,
+) -> None:
+    _insert_stale_development_portfolio(session_factory)
+    seed_script.seed_development_portfolios(session_factory)
+
+    with session_factory() as session:
+        service = RebalanceApplicationService(
+            portfolio_repository=PortfolioRepository(
+                session
+            ),
+            persistence_service=RebalancePersistenceService(
+                RebalanceRunRepository(session)
+            ),
+        )
+
+        result = service.execute_rebalance(
+            portfolio_id="DEV-P00001",
+            transaction_cost_rate=Decimal("0.002"),
+            run_id="RUN-SEED-REGRESSION",
+        )
+
+    assert result.portfolio_id == "DEV-P00001"
+    assert result.run_id == "RUN-SEED-REGRESSION"
+    assert result.trade_count == 6
 
 
 def test_seed_failure_rolls_back_transaction(
@@ -168,6 +236,7 @@ def test_seed_failure_rolls_back_transaction(
         )
 
     assert result.created == 0
+    assert result.replaced == 0
     assert result.skipped == 0
     assert result.failed == 10
     assert portfolio_count == 0
@@ -244,3 +313,46 @@ def _load_portfolios(
                 .order_by(PortfolioModel.portfolio_id)
             ).all()
         )
+
+
+def _insert_stale_development_portfolio(
+    session_factory: DatabaseSessionFactory,
+) -> None:
+    """Insert stale dev data that should be refreshed by the seed."""
+
+    with session_factory() as session:
+        with session.begin():
+            client = ClientModel(
+                client_id="DEV-C00001",
+                risk_category="conservative",
+            )
+            portfolio = PortfolioModel(
+                portfolio_id="DEV-P00001",
+                portfolio_value=Decimal("1000000.00"),
+                currency="USD",
+            )
+            client.portfolios.append(portfolio)
+
+            weights = [
+                Decimal("0.5000000000"),
+                Decimal("0.1000000000"),
+                Decimal("0.1000000000"),
+                Decimal("0.1000000000"),
+                Decimal("0.1000000000"),
+                Decimal("0.1000000000"),
+            ]
+
+            for asset, weight in zip(
+                seed_script.ASSET_CLASSES,
+                weights,
+            ):
+                portfolio.holdings.append(
+                    PortfolioHoldingModel(
+                        asset=asset,
+                        current_weight=weight,
+                        current_value=Decimal("1.00"),
+                        cost_basis=Decimal("0.90"),
+                    )
+                )
+
+            session.add(client)
