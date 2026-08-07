@@ -106,7 +106,24 @@ class FastApiClient:
         )
 
         return self._parse_paginated_response(payload)
+    def get_portfolio(
+            self,
+            portfolio_id: str,
+     ) -> JsonObject:
+        """Return one stored portfolio with holdings."""
 
+        normalized_portfolio_id = portfolio_id.strip()
+
+        if not normalized_portfolio_id:
+            raise ValueError(
+                "portfolio_id must not be empty."
+            )
+
+        payload = self._get_json(
+            f"/portfolios/{normalized_portfolio_id}"
+        )
+
+        return self._parse_portfolio_detail(payload)
     def _get_json(
         self,
         path: str,
@@ -204,3 +221,100 @@ class FastApiClient:
             offset=offset,
             count=count,
         )
+
+@staticmethod
+def _parse_portfolio_detail(
+    payload: JsonObject,
+) -> JsonObject:
+    """Validate one portfolio-detail API response."""
+
+    portfolio_id = payload.get("portfolio_id")
+    client_id = payload.get("client_id")
+    portfolio_value = payload.get("portfolio_value")
+    currency = payload.get("currency")
+    holdings = payload.get("holdings")
+    holding_count = payload.get("holding_count")
+
+    if not isinstance(portfolio_id, str) or not portfolio_id.strip():
+        raise ApiPayloadError(
+            "Portfolio detail field 'portfolio_id' "
+            "must be a non-empty string."
+        )
+
+    if not isinstance(client_id, str) or not client_id.strip():
+        raise ApiPayloadError(
+            "Portfolio detail field 'client_id' "
+            "must be a non-empty string."
+        )
+
+    if not isinstance(
+        portfolio_value,
+        (int, float),
+    ) or isinstance(portfolio_value, bool):
+        raise ApiPayloadError(
+            "Portfolio detail field 'portfolio_value' "
+            "must be numeric."
+        )
+
+    if not isinstance(currency, str) or not currency.strip():
+        raise ApiPayloadError(
+            "Portfolio detail field 'currency' "
+            "must be a non-empty string."
+        )
+
+    if not isinstance(holdings, list):
+        raise ApiPayloadError(
+            "Portfolio detail field 'holdings' must be a list."
+        )
+
+    for holding in holdings:
+        if not isinstance(holding, dict):
+            raise ApiPayloadError(
+                "Every portfolio holding must be an object."
+            )
+
+        FastApiClient._validate_portfolio_holding(
+            holding,
+        )
+
+    if not isinstance(holding_count, int) or isinstance(
+        holding_count,
+        bool,
+    ):
+        raise ApiPayloadError(
+            "Portfolio detail field 'holding_count' "
+            "must be an integer."
+        )
+
+    return payload
+
+@staticmethod
+def _validate_portfolio_holding(
+    holding: JsonObject,
+) -> None:
+    """Validate one portfolio holding."""
+
+    asset = holding.get("asset")
+    current_weight = holding.get("current_weight")
+    current_value = holding.get("current_value")
+    cost_basis = holding.get("cost_basis")
+
+    if not isinstance(asset, str) or not asset.strip():
+        raise ApiPayloadError(
+            "Portfolio holding field 'asset' "
+            "must be a non-empty string."
+        )
+
+    for field_name, value in {
+        "current_weight": current_weight,
+        "current_value": current_value,
+        "cost_basis": cost_basis,
+    }.items():
+        if not isinstance(
+            value,
+            (int, float),
+        ) or isinstance(value, bool):
+            raise ApiPayloadError(
+                f"Portfolio holding field "
+                f"'{field_name}' must be numeric."
+            )
