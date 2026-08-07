@@ -1,18 +1,32 @@
 from __future__ import annotations
 
-import pandas as pd
 import streamlit as st
 
-from streamlit_app.components.metrics import format_currency
+from streamlit_app.components.cards import (
+    render_key_value,
+    render_kpi_card,
+)
+from streamlit_app.components.metrics import (
+    format_currency,
+    format_percentage,
+)
 from streamlit_app.components.navigation import render_sidebar
+from streamlit_app.components.status import status_label
+from streamlit_app.components.tables import (
+    render_rebalance_audit_table,
+    render_rebalance_run_table,
+    render_rebalance_trade_table,
+)
 from streamlit_app.config import get_settings
 from streamlit_app.services.api_client import (
     ApiClientError,
     FastApiClient,
     JsonObject,
+    JsonValue,
     PaginatedResponse,
 )
 from streamlit_app.services.display import display_timestamp
+from streamlit_app.services.styles import load_global_styles
 
 
 def _build_client() -> FastApiClient:
@@ -58,57 +72,42 @@ def _extract_run_ids(
     return run_ids
 
 
+def _text_value(
+    value: JsonValue,
+    *,
+    fallback: str = "Unavailable",
+) -> str:
+    """Return a safe compact text value from a JSON field."""
+
+    if value is None:
+        return fallback
+
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+
+    if isinstance(value, (int, float)):
+        return str(value)
+
+    if isinstance(value, str) and value.strip():
+        return value
+
+    return fallback
+
+
 def _render_run_history(
     rebalance_page: PaginatedResponse,
 ) -> None:
     """Render the portfolio's rebalance history."""
 
-    st.subheader("Rebalance Runs")
+    st.subheader("Historical Runs")
 
-    if not rebalance_page.items:
-        st.info("No rebalance runs exist for this portfolio.")
-        return
-
-    dataframe = pd.DataFrame(rebalance_page.items)
-
-    preferred_columns = [
-        "run_id",
-        "status",
-        "created_at",
-        "portfolio_value",
-        "transaction_cost",
-    ]
-
-    visible_columns = [
-        column
-        for column in preferred_columns
-        if column in dataframe.columns
-    ]
-
-    if visible_columns:
-        dataframe = dataframe[visible_columns].copy()
-
-    st.dataframe(
-        dataframe,
-        width="stretch",
-        hide_index=True,
-        column_config={
-            "portfolio_value": st.column_config.NumberColumn(
-                "Portfolio Value",
-                format="$%.2f",
-            ),
-            "transaction_cost": st.column_config.NumberColumn(
-                "Transaction Cost",
-                format="$%.2f",
-            ),
-        },
-    )
-
-    st.caption(
-        f"Showing {rebalance_page.count} run(s), "
-        f"limit={rebalance_page.limit}, "
-        f"offset={rebalance_page.offset}."
-    )
+    with st.container(border=True):
+        render_rebalance_run_table(rebalance_page.items)
+        st.caption(
+            f"Showing {rebalance_page.count} run(s), "
+            f"limit={rebalance_page.limit}, "
+            f"offset={rebalance_page.offset}."
+        )
 
 
 def _render_run_summary(
@@ -116,109 +115,90 @@ def _render_run_summary(
 ) -> None:
     """Render one historical rebalance summary."""
 
-    st.subheader("Run Summary")
+    st.subheader("Selected Run Summary")
 
-    status_column, trade_column, value_column = st.columns(3)
+    first, second, third, fourth = st.columns(4)
 
-    with status_column:
-        st.metric(
-            "Status",
-            str(summary.get("status", "Unknown")),
+    with first:
+        render_kpi_card(
+            title="Status",
+            value=status_label(_text_value(summary.get("status"))),
         )
 
-    with trade_column:
-        st.metric(
-            "Trade Count",
-            str(summary.get("trade_count", "Unknown")),
+    with second:
+        render_kpi_card(
+            title="Portfolio Value",
+            value=format_currency(summary.get("portfolio_value")),
         )
 
-    with value_column:
-        st.metric(
-            "Portfolio Value",
-            format_currency(
-                summary.get("portfolio_value")
-            ),
+    with third:
+        render_kpi_card(
+            title="Trade Count",
+            value=_text_value(summary.get("trade_count")),
         )
 
-    cost_column, tax_column = st.columns(2)
-
-    with cost_column:
-        st.metric(
-            "Transaction Cost",
-            format_currency(
-                summary.get("transaction_cost")
-            ),
+    with fourth:
+        render_kpi_card(
+            title="Transaction Cost",
+            value=format_currency(summary.get("transaction_cost")),
         )
 
-    with tax_column:
-        st.metric(
-            "Estimated Tax",
-            format_currency(
+    fifth, sixth, seventh = st.columns(3)
+
+    with fifth:
+        render_kpi_card(
+            title="Estimated Tax",
+            value=format_currency(
                 summary.get("estimated_tax_liability")
             ),
         )
 
-    approval_column, pending_column = st.columns(2)
-
-    with approval_column:
-        st.metric(
-            "Approvals Required",
-            str(
-                summary.get(
-                    "approval_required_count",
-                    0,
-                )
+    with sixth:
+        render_kpi_card(
+            title="Approvals Required",
+            value=_text_value(
+                summary.get("approval_required_count")
             ),
         )
 
-    with pending_column:
-        st.metric(
-            "Pending Approvals",
-            str(
-                summary.get(
-                    "pending_approval_count",
-                    0,
-                )
+    with seventh:
+        render_kpi_card(
+            title="Pending Approvals",
+            value=_text_value(
+                summary.get("pending_approval_count")
             ),
         )
 
-    st.markdown("#### Run Information")
+    with st.container(border=True):
+        st.markdown("#### Run Metadata")
 
-    left_column, right_column = st.columns(2)
+        left, right = st.columns(2)
 
-    with left_column:
-        st.write(
-            "**Run ID:**",
-            summary.get("run_id", "Unavailable"),
-        )
+        with left:
+            render_key_value(
+                label="Run ID",
+                value=_text_value(summary.get("run_id")),
+            )
+            render_key_value(
+                label="Portfolio ID",
+                value=_text_value(summary.get("portfolio_id")),
+            )
+            render_key_value(
+                label="Transaction Cost Rate",
+                value=format_percentage(
+                    summary.get("transaction_cost_rate")
+                ),
+            )
 
-        st.write(
-            "**Created:**",
-            display_timestamp(
-                summary.get("created_at")
-            ),
-        )
-
-        st.write(
-            "**Completed:**",
-            display_timestamp(
-                summary.get("completed_at")
-            ),
-        )
-
-    with right_column:
-        st.write(
-            "**Portfolio ID:**",
-            summary.get("portfolio_id", "Unavailable"),
-        )
-
-        st.write(
-            "**Transaction Cost Rate:**",
-            summary.get(
-                "transaction_cost_rate",
-                "Unavailable",
-            ),
-        )
+        with right:
+            render_key_value(
+                label="Created",
+                value=display_timestamp(summary.get("created_at")),
+            )
+            render_key_value(
+                label="Completed",
+                value=display_timestamp(summary.get("completed_at")),
+            )
 
 
 def _render_trades(
@@ -227,75 +207,11 @@ def _render_trades(
     """Render historical rebalance trades."""
 
     st.subheader("Trades")
-
-    if not trade_page.items:
-        st.info("No trades exist for this rebalance run.")
-        return
-
-    dataframe = pd.DataFrame(trade_page.items)
-
-    preferred_columns = [
-        "asset",
-        "action",
-        "current_weight",
-        "trade_weight",
-        "post_trade_weight",
-        "trade_value",
-        "estimated_transaction_cost",
-        "estimated_tax",
-        "threshold_severity",
-        "final_trigger_type",
-    ]
-
-    visible_columns = [
-        column
-        for column in preferred_columns
-        if column in dataframe.columns
-    ]
-
-    if visible_columns:
-        dataframe = dataframe[visible_columns].copy()
-
-    for column in (
-        "current_weight",
-        "trade_weight",
-        "post_trade_weight",
-    ):
-        if column in dataframe.columns:
-            dataframe[column] = dataframe[column] * 100
-
-    st.dataframe(
-        dataframe,
-        width="stretch",
-        hide_index=True,
-        column_config={
-            "current_weight": st.column_config.NumberColumn(
-                "Current Weight",
-                format="%.2f%%",
-            ),
-            "trade_weight": st.column_config.NumberColumn(
-                "Trade Weight",
-                format="%.2f%%",
-            ),
-            "post_trade_weight": st.column_config.NumberColumn(
-                "Post-Trade Weight",
-                format="%.2f%%",
-            ),
-            "trade_value": st.column_config.NumberColumn(
-                "Trade Value",
-                format="$%.2f",
-            ),
-            "estimated_transaction_cost": (
-                st.column_config.NumberColumn(
-                    "Transaction Cost",
-                    format="$%.2f",
-                )
-            ),
-            "estimated_tax": st.column_config.NumberColumn(
-                "Estimated Tax",
-                format="$%.2f",
-            ),
-        },
+    render_rebalance_trade_table(trade_page.items)
+    st.caption(
+        f"Showing {trade_page.count} trade(s), "
+        f"limit={trade_page.limit}, "
+        f"offset={trade_page.offset}."
     )
 
 
@@ -305,39 +221,11 @@ def _render_audit(
     """Render audit records for one historical run."""
 
     st.subheader("Audit Trail")
-
-    if not audit_page.items:
-        st.info("No audit records exist for this run.")
-        return
-
-    dataframe = pd.DataFrame(audit_page.items)
-
-    preferred_columns = [
-        "audit_id",
-        "timestamp",
-        "event_type",
-        "asset",
-        "action",
-        "approval_status",
-        "approval_reason",
-        "reviewed_by",
-        "reviewed_at",
-        "audit_message",
-    ]
-
-    visible_columns = [
-        column
-        for column in preferred_columns
-        if column in dataframe.columns
-    ]
-
-    if visible_columns:
-        dataframe = dataframe[visible_columns].copy()
-
-    st.dataframe(
-        dataframe,
-        width="stretch",
-        hide_index=True,
+    render_rebalance_audit_table(audit_page.items)
+    st.caption(
+        f"Showing {audit_page.count} audit record(s), "
+        f"limit={audit_page.limit}, "
+        f"offset={audit_page.offset}."
     )
 
 
@@ -351,12 +239,18 @@ def main() -> None:
         page_icon="🕘",
         layout="wide",
     )
+    load_global_styles()
 
     render_sidebar(settings)
 
     st.title("Rebalance History")
-    st.caption(
-        "Inspect previous database-backed rebalance runs."
+    st.markdown(
+        (
+            "<div class='pm-page-caption'>"
+            "Inspect previous database-backed rebalance runs."
+            "</div>"
+        ),
+        unsafe_allow_html=True,
     )
 
     client = _build_client()
@@ -367,23 +261,24 @@ def main() -> None:
             offset=0,
         )
     except ApiClientError as exc:
-        st.error(
-            f"Could not load portfolios: {exc}"
-        )
+        st.error(f"Could not load portfolios: {exc}")
         return
 
-    portfolio_ids = _extract_portfolio_ids(
-        portfolio_page
-    )
+    portfolio_ids = _extract_portfolio_ids(portfolio_page)
 
     if not portfolio_ids:
         st.info("No stored portfolios are available.")
         return
 
-    selected_portfolio = st.selectbox(
-        "Select Portfolio",
-        options=portfolio_ids,
-    )
+    with st.container(border=True):
+        st.caption(
+            "Choose a stored portfolio to inspect persisted "
+            "rebalance runs."
+        )
+        selected_portfolio = st.selectbox(
+            "Portfolio",
+            options=portfolio_ids,
+        )
 
     try:
         rebalance_page = client.list_portfolio_rebalances(
@@ -392,40 +287,29 @@ def main() -> None:
             offset=0,
         )
     except ApiClientError as exc:
-        st.error(
-            f"Could not load rebalance history: {exc}"
-        )
+        st.error(f"Could not load rebalance history: {exc}")
         return
 
-    _render_run_history(
-        rebalance_page
-    )
+    _render_run_history(rebalance_page)
 
-    run_ids = _extract_run_ids(
-        rebalance_page
-    )
+    run_ids = _extract_run_ids(rebalance_page)
 
     if not run_ids:
         return
 
-    selected_run = st.selectbox(
-        "Select Rebalance Run",
-        options=run_ids,
-    )
+    with st.container(border=True):
+        selected_run = st.selectbox(
+            "Rebalance Run",
+            options=run_ids,
+        )
 
     try:
-        summary = client.get_rebalance(
-            selected_run
-        )
+        summary = client.get_rebalance(selected_run)
     except ApiClientError as exc:
-        st.error(
-            f"Could not load run details: {exc}"
-        )
+        st.error(f"Could not load run details: {exc}")
         return
 
-    _render_run_summary(
-        summary
-    )
+    _render_run_summary(summary)
 
     try:
         trade_page = client.list_rebalance_trades(
@@ -434,13 +318,9 @@ def main() -> None:
             offset=0,
         )
     except ApiClientError as exc:
-        st.warning(
-            f"Could not load trades: {exc}"
-        )
+        st.warning(f"Could not load trades: {exc}")
     else:
-        _render_trades(
-            trade_page
-        )
+        _render_trades(trade_page)
 
     try:
         audit_page = client.list_rebalance_audit(
@@ -449,13 +329,9 @@ def main() -> None:
             offset=0,
         )
     except ApiClientError as exc:
-        st.warning(
-            f"Could not load audit records: {exc}"
-        )
+        st.warning(f"Could not load audit records: {exc}")
     else:
-        _render_audit(
-            audit_page
-        )
+        _render_audit(audit_page)
 
 
 if __name__ == "__main__":

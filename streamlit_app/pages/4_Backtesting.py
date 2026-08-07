@@ -1,20 +1,27 @@
 from __future__ import annotations
 
-import pandas as pd
 import streamlit as st
 
+from streamlit_app.components.cards import render_kpi_card
+from streamlit_app.components.charts import (
+    render_backtest_drawdown_history,
+    render_backtest_portfolio_history,
+    render_strategy_comparison,
+)
 from streamlit_app.components.metrics import (
     format_currency,
-    render_metric_card,
+    format_number,
+    format_percentage,
 )
 from streamlit_app.components.navigation import render_sidebar
+from streamlit_app.components.tables import render_strategy_comparison_table
 from streamlit_app.config import get_settings
 from streamlit_app.services.api_client import (
     ApiClientError,
     FastApiClient,
     JsonObject,
-    JsonValue,
 )
+from streamlit_app.services.styles import load_global_styles
 
 
 ASSET_NAMES = [
@@ -71,40 +78,10 @@ def _build_client() -> FastApiClient:
     )
 
 
-def _percent(
-    value: JsonValue,
-) -> str:
-    """Format a decimal performance value as a percentage."""
-
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
-        return "Not available"
-
-    return f"{float(value) * 100:.2f}%"
-
-
-def _number(
-    value: JsonValue,
-) -> str:
-    """Format a numeric backend value."""
-
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
-        return "Not available"
-
-    return f"{float(value):,.2f}"
-
-
-def _integer(
-    value: int,
-) -> str:
-    """Format an integer count."""
-
-    return f"{value:,}"
-
-
 def _metrics(
     result: JsonObject,
 ) -> JsonObject | None:
-    """Return validated-looking metrics for rendering."""
+    """Return metrics from a backtest response when available."""
 
     metrics = result.get("metrics")
 
@@ -137,13 +114,17 @@ def _sum_history_number(
     history: list[JsonObject],
     field_name: str,
 ) -> float:
-    """Sum one numeric history field."""
+    """Sum one numeric history field returned by the backend."""
 
     total = 0.0
 
     for row in history:
         value = row.get(field_name)
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
+
+        if isinstance(value, (int, float)) and not isinstance(
+            value,
+            bool,
+        ):
             total += float(value)
 
     return total
@@ -153,12 +134,13 @@ def _sum_history_int(
     history: list[JsonObject],
     field_name: str,
 ) -> int:
-    """Sum integer or boolean history fields."""
+    """Sum integer or boolean history fields returned by the backend."""
 
     total = 0
 
     for row in history:
         value = row.get(field_name)
+
         if isinstance(value, bool):
             total += int(value)
         elif isinstance(value, int):
@@ -170,14 +152,15 @@ def _sum_history_int(
 def _max_history_number(
     history: list[JsonObject],
     field_names: tuple[str, ...],
-) -> float:
-    """Return the maximum available numeric field value."""
+) -> float | None:
+    """Return the maximum returned numeric history field value."""
 
     values: list[float] = []
 
     for row in history:
         for field_name in field_names:
             value = row.get(field_name)
+
             if isinstance(value, (int, float)) and not isinstance(
                 value,
                 bool,
@@ -186,9 +169,17 @@ def _max_history_number(
                 break
 
     if not values:
-        return 0.0
+        return None
 
     return max(values)
+
+
+def _integer(
+    value: int,
+) -> str:
+    """Format an integer count."""
+
+    return f"{value:,}"
 
 
 def _render_performance_metrics(
@@ -202,37 +193,36 @@ def _render_performance_metrics(
         st.warning("Backtest metrics are unavailable.")
         return
 
-    first, second, third = st.columns(3)
-    fourth, fifth = st.columns(2)
+    first, second, third, fourth, fifth = st.columns(5)
 
     with first:
-        render_metric_card(
-            label="Total Return",
-            value=_percent(metrics.get("total_return")),
+        render_kpi_card(
+            title="Total Return",
+            value=format_percentage(metrics.get("total_return")),
         )
 
     with second:
-        render_metric_card(
-            label="Annualized Return",
-            value=_percent(metrics.get("annualized_return")),
+        render_kpi_card(
+            title="Annualized Return",
+            value=format_percentage(metrics.get("annualized_return")),
         )
 
     with third:
-        render_metric_card(
-            label="Volatility",
-            value=_percent(metrics.get("volatility")),
+        render_kpi_card(
+            title="Volatility",
+            value=format_percentage(metrics.get("volatility")),
         )
 
     with fourth:
-        render_metric_card(
-            label="Sharpe Ratio",
-            value=_number(metrics.get("sharpe_ratio")),
+        render_kpi_card(
+            title="Sharpe Ratio",
+            value=format_number(metrics.get("sharpe_ratio")),
         )
 
     with fifth:
-        render_metric_card(
-            label="Maximum Drawdown",
-            value=_percent(metrics.get("maximum_drawdown")),
+        render_kpi_card(
+            title="Maximum Drawdown",
+            value=format_percentage(metrics.get("maximum_drawdown")),
         )
 
 
@@ -243,39 +233,46 @@ def _render_threshold_metrics(
 
     history = _history(result)
 
+    st.subheader("Strategy-Specific Metrics")
+    st.caption(
+        "Values in this section summarize fields returned in the "
+        "threshold backtest history."
+    )
+
     first, second, third = st.columns(3)
-    fourth, fifth = st.columns(2)
+    fourth, fifth, sixth = st.columns(3)
 
     with first:
-        render_metric_card(
-            label="Number of Trades",
-            value=_integer(
-                _sum_history_int(history, "trade_count")
-            ),
+        render_kpi_card(
+            title="Number of Trades",
+            value=_integer(_sum_history_int(history, "trade_count")),
         )
 
     with second:
-        render_metric_card(
-            label="Turnover",
-            value=_percent(
+        render_kpi_card(
+            title="Rebalances",
+            value=_integer(_sum_history_int(history, "rebalanced")),
+        )
+
+    with third:
+        render_kpi_card(
+            title="Turnover",
+            value=format_percentage(
                 _sum_history_number(history, "turnover")
             ),
         )
 
-    with third:
-        render_metric_card(
-            label="Transaction Costs",
+    with fourth:
+        render_kpi_card(
+            title="Transaction Costs",
             value=format_currency(
-                _sum_history_number(
-                    history,
-                    "transaction_cost",
-                )
+                _sum_history_number(history, "transaction_cost")
             ),
         )
 
-    with fourth:
-        render_metric_card(
-            label="Estimated Taxes",
+    with fifth:
+        render_kpi_card(
+            title="Estimated Taxes",
             value=format_currency(
                 _sum_history_number(
                     history,
@@ -284,10 +281,10 @@ def _render_threshold_metrics(
             ),
         )
 
-    with fifth:
-        render_metric_card(
-            label="Maximum Drift",
-            value=_percent(
+    with sixth:
+        render_kpi_card(
+            title="Maximum Drift",
+            value=format_percentage(
                 _max_history_number(
                     history,
                     (
@@ -300,90 +297,23 @@ def _render_threshold_metrics(
         )
 
 
-def _render_history_chart(
+def _render_history_charts(
     result: JsonObject,
+    *,
+    title: str,
 ) -> None:
-    """Plot portfolio value history returned by the backend."""
+    """Render available backtest history charts."""
 
     history = _history(result)
 
-    if not history:
-        st.info("No portfolio history was returned.")
-        return
+    st.subheader("Portfolio Value Chart")
 
-    dataframe = pd.DataFrame(history)
-
-    if "portfolio_value" not in dataframe.columns:
-        st.warning("Portfolio history does not include portfolio value.")
-        return
-
-    chart_data = dataframe[["portfolio_value"]].copy()
-
-    if "date" in dataframe.columns:
-        chart_data.index = dataframe["date"].astype(str)
-
-    st.line_chart(
-        chart_data,
-        use_container_width=True,
-    )
-
-
-def _comparison_dataframe(
-    comparison: JsonObject,
-) -> pd.DataFrame:
-    """Build a side-by-side comparison table."""
-
-    buy_and_hold = comparison.get("buy_and_hold")
-    threshold = comparison.get("threshold_rebalancing")
-
-    if not isinstance(buy_and_hold, dict) or not isinstance(
-        threshold,
-        dict,
-    ):
-        return pd.DataFrame()
-
-    rows = [
-        ("Total Return", _percent(buy_and_hold.get("total_return")),
-         _percent(threshold.get("total_return"))),
-        (
-            "Annualized Return",
-            _percent(buy_and_hold.get("annualized_return")),
-            _percent(threshold.get("annualized_return")),
-        ),
-        (
-            "Volatility",
-            _percent(buy_and_hold.get("volatility")),
-            _percent(threshold.get("volatility")),
-        ),
-        (
-            "Sharpe Ratio",
-            _number(buy_and_hold.get("sharpe_ratio")),
-            _number(threshold.get("sharpe_ratio")),
-        ),
-        (
-            "Maximum Drawdown",
-            _percent(buy_and_hold.get("maximum_drawdown")),
-            _percent(threshold.get("maximum_drawdown")),
-        ),
-        (
-            "Implementation Cost",
-            format_currency(
-                buy_and_hold.get("total_implementation_cost")
-            ),
-            format_currency(
-                threshold.get("total_implementation_cost")
-            ),
-        ),
-    ]
-
-    return pd.DataFrame(
-        rows,
-        columns=[
-            "Metric",
-            "Buy & Hold",
-            "Threshold Rebalancing",
-        ],
-    )
+    with st.container(border=True):
+        render_backtest_portfolio_history(
+            history,
+            title=title,
+        )
+        render_backtest_drawdown_history(history)
 
 
 def _render_comparison(
@@ -391,17 +321,13 @@ def _render_comparison(
 ) -> None:
     """Render strategy-comparison output."""
 
-    dataframe = _comparison_dataframe(comparison)
+    st.subheader("Strategy Comparison")
 
-    if dataframe.empty:
-        st.warning("Strategy comparison data is unavailable.")
-        return
+    with st.container(border=True):
+        render_strategy_comparison_table(comparison)
 
-    st.dataframe(
-        dataframe,
-        width="stretch",
-        hide_index=True,
-    )
+    with st.container(border=True):
+        render_strategy_comparison(comparison)
 
     summary = comparison.get("performance_summary")
 
@@ -456,33 +382,18 @@ def _run_threshold(
     )
 
 
-def main() -> None:
-    """Render the FastAPI-backed backtesting page."""
+def _render_configuration(
+    strategy: str,
+) -> tuple[float, float, int, float, float, float, float]:
+    """Render backtest configuration controls."""
 
-    settings = get_settings()
+    with st.container(border=True):
+        st.caption(
+            "Backtests simulate deterministic strategy behavior from "
+            "submitted market-return inputs. They are not live trading "
+            "recommendations."
+        )
 
-    st.set_page_config(
-        page_title=f"Backtesting | {settings.app_title}",
-        page_icon="📈",
-        layout="wide",
-    )
-
-    render_sidebar(settings)
-
-    st.title("Backtesting")
-
-    client = _build_client()
-
-    strategy = st.selectbox(
-        label="Strategy",
-        options=[
-            "Buy & Hold",
-            "Threshold Rebalancing",
-            "Strategy Comparison",
-        ],
-    )
-
-    with st.expander("Backtest Inputs", expanded=True):
         initial_portfolio_value = st.number_input(
             "Initial Portfolio Value",
             min_value=1_000.0,
@@ -512,10 +423,8 @@ def main() -> None:
         "Threshold Rebalancing",
         "Strategy Comparison",
     }:
-        with st.expander(
-            "Threshold Settings",
-            expanded=True,
-        ):
+        with st.container(border=True):
+            st.caption("Threshold strategy settings")
             drift_band = st.number_input(
                 "Drift Band",
                 min_value=0.001,
@@ -546,6 +455,62 @@ def main() -> None:
                 format="%.4f",
             )
 
+    return (
+        float(initial_portfolio_value),
+        float(risk_free_rate),
+        int(periods_per_year),
+        float(drift_band),
+        float(transaction_cost_rate),
+        float(tax_rate),
+        float(turnover_budget),
+    )
+
+
+def main() -> None:
+    """Render the FastAPI-backed backtesting page."""
+
+    settings = get_settings()
+
+    st.set_page_config(
+        page_title=f"Backtesting | {settings.app_title}",
+        page_icon="📈",
+        layout="wide",
+    )
+    load_global_styles()
+
+    render_sidebar(settings)
+
+    st.title("Backtesting")
+    st.markdown(
+        (
+            "<div class='pm-page-caption'>"
+            "Simulate deterministic strategy performance through FastAPI."
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
+    client = _build_client()
+
+    strategy = st.selectbox(
+        label="Strategy",
+        options=[
+            "Buy & Hold",
+            "Threshold Rebalancing",
+            "Strategy Comparison",
+        ],
+    )
+
+    (
+        initial_portfolio_value,
+        risk_free_rate,
+        periods_per_year,
+        drift_band,
+        transaction_cost_rate,
+        tax_rate,
+        turnover_budget,
+    ) = _render_configuration(strategy)
+
     if not st.button(
         "Run Backtest",
         type="primary",
@@ -553,70 +518,74 @@ def main() -> None:
         return
 
     try:
-        if strategy == "Buy & Hold":
-            result = _run_buy_and_hold(
+        with st.spinner("Running deterministic backtest..."):
+            if strategy == "Buy & Hold":
+                result = _run_buy_and_hold(
+                    client=client,
+                    initial_portfolio_value=initial_portfolio_value,
+                    risk_free_rate=risk_free_rate,
+                    periods_per_year=periods_per_year,
+                )
+                st.subheader("Performance KPIs")
+                _render_performance_metrics(result)
+                _render_history_charts(
+                    result,
+                    title="Buy & Hold Portfolio Value",
+                )
+                return
+
+            threshold_result = _run_threshold(
                 client=client,
-                initial_portfolio_value=float(
-                    initial_portfolio_value
-                ),
-                risk_free_rate=float(risk_free_rate),
-                periods_per_year=int(periods_per_year),
+                initial_portfolio_value=initial_portfolio_value,
+                risk_free_rate=risk_free_rate,
+                periods_per_year=periods_per_year,
+                drift_band=drift_band,
+                transaction_cost_rate=transaction_cost_rate,
+                tax_rate=tax_rate,
+                turnover_budget=turnover_budget,
             )
-            st.subheader("Buy & Hold Results")
-            _render_performance_metrics(result)
-            _render_history_chart(result)
-            return
 
-        threshold_result = _run_threshold(
-            client=client,
-            initial_portfolio_value=float(
-                initial_portfolio_value
-            ),
-            risk_free_rate=float(risk_free_rate),
-            periods_per_year=int(periods_per_year),
-            drift_band=float(drift_band),
-            transaction_cost_rate=float(
-                transaction_cost_rate
-            ),
-            tax_rate=float(tax_rate),
-            turnover_budget=float(turnover_budget),
-        )
+            if strategy == "Threshold Rebalancing":
+                st.subheader("Performance KPIs")
+                _render_performance_metrics(threshold_result)
+                _render_history_charts(
+                    threshold_result,
+                    title="Threshold Rebalancing Portfolio Value",
+                )
+                _render_threshold_metrics(threshold_result)
+                return
 
-        if strategy == "Threshold Rebalancing":
-            st.subheader("Threshold Rebalancing Results")
-            _render_performance_metrics(threshold_result)
-            _render_threshold_metrics(threshold_result)
-            _render_history_chart(threshold_result)
-            return
-
-        buy_and_hold_result = _run_buy_and_hold(
-            client=client,
-            initial_portfolio_value=float(
-                initial_portfolio_value
-            ),
-            risk_free_rate=float(risk_free_rate),
-            periods_per_year=int(periods_per_year),
-        )
-        comparison = client.compare_strategies(
-            buy_and_hold=buy_and_hold_result,
-            threshold_rebalancing=threshold_result,
-        )
+            buy_and_hold_result = _run_buy_and_hold(
+                client=client,
+                initial_portfolio_value=initial_portfolio_value,
+                risk_free_rate=risk_free_rate,
+                periods_per_year=periods_per_year,
+            )
+            comparison = client.compare_strategies(
+                buy_and_hold=buy_and_hold_result,
+                threshold_rebalancing=threshold_result,
+            )
     except (ApiClientError, ValueError) as exc:
         st.error(f"Backtest failed: {exc}")
         return
 
-    st.subheader("Strategy Comparison")
     _render_comparison(comparison)
 
     left, right = st.columns(2)
 
     with left:
-        st.markdown("#### Buy & Hold")
-        _render_history_chart(buy_and_hold_result)
+        with st.container(border=True):
+            render_backtest_portfolio_history(
+                _history(buy_and_hold_result),
+                title="Buy & Hold Portfolio Value",
+            )
 
     with right:
-        st.markdown("#### Threshold Rebalancing")
-        _render_history_chart(threshold_result)
+        with st.container(border=True):
+            render_backtest_portfolio_history(
+                _history(threshold_result),
+                title="Threshold Rebalancing Portfolio Value",
+            )
 
 
 if __name__ == "__main__":

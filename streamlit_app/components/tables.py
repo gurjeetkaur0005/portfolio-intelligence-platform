@@ -186,6 +186,105 @@ def prepare_rebalance_audit_table_data(
     return result
 
 
+def prepare_rebalance_run_table_data(
+    runs: list[dict[str, Any]],
+) -> pd.DataFrame:
+    """Return display-ready historical rebalance run rows."""
+
+    dataframe = pd.DataFrame(runs)
+
+    preferred_columns = [
+        "run_id",
+        "status",
+        "created_at",
+        "portfolio_value",
+        "transaction_cost",
+    ]
+    visible_columns = [
+        column
+        for column in preferred_columns
+        if column in dataframe.columns
+    ]
+
+    if not visible_columns:
+        return pd.DataFrame()
+
+    result = dataframe[visible_columns].copy()
+
+    for column in (
+        "portfolio_value",
+        "transaction_cost",
+    ):
+        if column in result.columns:
+            result[column] = pd.to_numeric(
+                result[column],
+                errors="coerce",
+            )
+
+    return result
+
+
+def prepare_strategy_comparison_table_data(
+    comparison: dict[str, Any],
+) -> pd.DataFrame:
+    """Return display-ready strategy comparison rows."""
+
+    from streamlit_app.services.display import (
+        display_currency,
+        display_label,
+        display_number,
+        display_percentage,
+    )
+
+    buy_and_hold = comparison.get("buy_and_hold")
+    threshold = comparison.get("threshold_rebalancing")
+
+    if not isinstance(buy_and_hold, dict) or not isinstance(
+        threshold,
+        dict,
+    ):
+        return pd.DataFrame()
+
+    metric_formatters = {
+        "total_return": display_percentage,
+        "annualized_return": display_percentage,
+        "volatility": display_percentage,
+        "maximum_drawdown": display_percentage,
+        "sharpe_ratio": display_number,
+        "transaction_costs": display_currency,
+        "taxes_paid": display_currency,
+        "total_implementation_cost": display_currency,
+        "number_of_rebalances": _format_table_count,
+    }
+    rows: list[dict[str, str]] = []
+
+    for metric_name, formatter in metric_formatters.items():
+        rows.append(
+            {
+                "Metric": display_label(metric_name),
+                "Buy & Hold": formatter(
+                    buy_and_hold.get(metric_name)
+                ),
+                "Threshold Rebalancing": formatter(
+                    threshold.get(metric_name)
+                ),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def _format_table_count(
+    value: Any,
+) -> str:
+    """Format a table count value."""
+
+    if isinstance(value, bool) or not isinstance(value, int):
+        return "Not available"
+
+    return f"{value:,}"
+
+
 def render_portfolio_table(
     portfolios: list[dict[str, Any]],
 ) -> None:
@@ -369,4 +468,63 @@ def render_rebalance_audit_table(
                 "Reviewed At",
             ),
         },
+    )
+
+
+def render_rebalance_run_table(
+    runs: list[dict[str, Any]],
+) -> None:
+    """Render historical rebalance runs."""
+
+    import streamlit as st
+
+    dataframe = prepare_rebalance_run_table_data(runs)
+
+    if dataframe.empty:
+        st.info("No rebalance runs exist for this portfolio.")
+        return
+
+    st.dataframe(
+        dataframe,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "run_id": st.column_config.TextColumn(
+                "Run ID",
+            ),
+            "status": st.column_config.TextColumn(
+                "Status",
+            ),
+            "created_at": st.column_config.TextColumn(
+                "Created",
+            ),
+            "portfolio_value": st.column_config.NumberColumn(
+                "Portfolio Value",
+                format="$%.2f",
+            ),
+            "transaction_cost": st.column_config.NumberColumn(
+                "Transaction Cost",
+                format="$%.2f",
+            ),
+        },
+    )
+
+
+def render_strategy_comparison_table(
+    comparison: dict[str, Any],
+) -> None:
+    """Render a side-by-side strategy comparison table."""
+
+    import streamlit as st
+
+    dataframe = prepare_strategy_comparison_table_data(comparison)
+
+    if dataframe.empty:
+        st.warning("Strategy comparison data is unavailable.")
+        return
+
+    st.dataframe(
+        dataframe,
+        width="stretch",
+        hide_index=True,
     )

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 POSITIVE_STATES = {
     "approved",
     "buy",
@@ -64,6 +66,44 @@ def approval_status_label(
 
     if required is False:
         return "Not Required"
+
+    return "Unavailable"
+
+
+def payload_status_label(
+    payload: Mapping[str, object] | None,
+) -> str:
+    """Return a user-facing status label from a response payload."""
+
+    if payload is None:
+        return "Unavailable"
+
+    status = payload.get("status")
+
+    if not isinstance(status, str):
+        return "Unavailable"
+
+    normalized_status = status.strip().lower()
+
+    if normalized_status in {
+        "healthy",
+        "ready",
+        "ok",
+        "success",
+    }:
+        return "Healthy"
+
+    if normalized_status == "not_configured":
+        return "Not Configured"
+
+    if normalized_status == "unhealthy":
+        return "Unhealthy"
+
+    if normalized_status == "failed":
+        return "Failed"
+
+    if normalized_status:
+        return status_label(normalized_status)
 
     return "Unavailable"
 

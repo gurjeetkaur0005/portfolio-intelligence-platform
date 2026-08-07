@@ -1,9 +1,14 @@
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import streamlit as st
+
+from streamlit_app.services.display import (
+    display_currency,
+    display_number,
+    display_percentage,
+)
 
 
 def render_metric_card(
@@ -28,12 +33,23 @@ def format_currency(
 ) -> str:
     """Format a numeric backend value as currency."""
 
-    if value is None:
-        return "Not available"
+    return display_currency(
+        value,
+        currency_symbol=currency_symbol,
+    )
 
-    try:
-        decimal_value = Decimal(str(value))
-    except (InvalidOperation, ValueError):
-        return "Not available"
 
-    return f"{currency_symbol}{decimal_value:,.2f}"
+def format_percentage(
+    value: Any,
+) -> str:
+    """Format a decimal backend value as a percentage."""
+
+    return display_percentage(value)
+
+
+def format_number(
+    value: Any,
+) -> str:
+    """Format a numeric backend value."""
+
+    return display_number(value)

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from streamlit_app.components.cards import render_kpi_card
+from streamlit_app.components.cards import (
+    render_key_value,
+    render_kpi_card,
+)
 from streamlit_app.components.charts import (
     _format_asset_label,
     render_rebalance_allocation_comparison,
@@ -148,26 +151,6 @@ def _approval_status(
     )
 
 
-def _render_key_value(
-    *,
-    label: str,
-    value: str,
-) -> None:
-    """Render one compact key-value row."""
-
-    import streamlit as st
-
-    st.markdown(
-        (
-            "<div class='pm-key-value'>"
-            f"<span>{label}</span>"
-            f"<strong>{value}</strong>"
-            "</div>"
-        ),
-        unsafe_allow_html=True,
-    )
-
-
 def _render_command_result(
     result: JsonObject,
 ) -> None:
@@ -185,7 +168,7 @@ def _render_command_result(
             st.success("Rebalance completed successfully.")
 
         if isinstance(run_id, str) and run_id.strip():
-            _render_key_value(
+            render_key_value(
                 label="Run ID",
                 value=run_id,
             )
@@ -272,15 +255,15 @@ def _render_run_information(
         left, right = st.columns(2)
 
         with left:
-            _render_key_value(
+            render_key_value(
                 label="Run ID",
                 value=_text_value(summary.get("run_id")),
             )
-            _render_key_value(
+            render_key_value(
                 label="Portfolio ID",
                 value=_text_value(summary.get("portfolio_id")),
             )
-            _render_key_value(
+            render_key_value(
                 label="Transaction Cost Rate",
                 value=_percentage_value(
                     summary.get("transaction_cost_rate")
@@ -288,11 +271,11 @@ def _render_run_information(
             )
 
         with right:
-            _render_key_value(
+            render_key_value(
                 label="Created",
                 value=display_timestamp(summary.get("created_at")),
             )
-            _render_key_value(
+            render_key_value(
                 label="Completed",
                 value=display_timestamp(summary.get("completed_at")),
             )
@@ -322,18 +305,18 @@ def _render_trigger_details(
     left, right = st.columns(2)
 
     with left:
-        _render_key_value(
+        render_key_value(
             label="Threshold Breached",
             value=_text_value(trade.get("threshold_breached")),
         )
-        _render_key_value(
+        render_key_value(
             label="Threshold Severity",
             value=_text_value(
                 trade.get("threshold_severity"),
                 fallback="Not available",
             ),
         )
-        _render_key_value(
+        render_key_value(
             label="Breach Ratio",
             value=_text_value(
                 trade.get("breach_ratio"),
@@ -342,21 +325,21 @@ def _render_trigger_details(
         )
 
     with right:
-        _render_key_value(
+        render_key_value(
             label="Final Trigger",
             value=_text_value(
                 trade.get("final_trigger_type"),
                 fallback="Not available",
             ),
         )
-        _render_key_value(
+        render_key_value(
             label="Final Priority",
             value=_text_value(
                 trade.get("final_priority"),
                 fallback="Not available",
             ),
         )
-        _render_key_value(
+        render_key_value(
             label="Contributing Triggers",
             value=_string_list_value(
                 trade.get("contributing_triggers")
@@ -400,13 +383,13 @@ def _render_approval_details(
     left, right = st.columns(2)
 
     with left:
-        _render_key_value(
+        render_key_value(
             label="Required",
             value=_text_value(approval.get("required")),
         )
         st.write("Status")
         render_status_badge(_approval_status(trade))
-        _render_key_value(
+        render_key_value(
             label="Reason",
             value=_text_value(
                 approval.get("reason"),
@@ -415,14 +398,14 @@ def _render_approval_details(
         )
 
     with right:
-        _render_key_value(
+        render_key_value(
             label="Reviewed By",
             value=_text_value(
                 approval.get("reviewed_by"),
                 fallback="Not recorded",
             ),
         )
-        _render_key_value(
+        render_key_value(
             label="Reviewed At",
             value=display_timestamp(approval.get("reviewed_at")),
         )

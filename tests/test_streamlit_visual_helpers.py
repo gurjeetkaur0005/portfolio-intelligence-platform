@@ -3,19 +3,26 @@ from __future__ import annotations
 from streamlit_app.components.charts import (
     _format_asset_label,
     prepare_allocation_data,
+    prepare_backtest_drawdown_data,
+    prepare_backtest_portfolio_history_data,
     prepare_holding_value_data,
     prepare_portfolio_value_data,
     prepare_rebalance_allocation_comparison_data,
+    prepare_strategy_comparison_chart_data,
 )
 from streamlit_app.components.status import (
     approval_status_label,
+    payload_status_label,
     status_label,
     status_tone,
 )
 from streamlit_app.components.tables import (
     prepare_holdings_table_data,
+    prepare_rebalance_run_table_data,
     prepare_rebalance_trade_table_data,
+    prepare_strategy_comparison_table_data,
 )
+from streamlit_app.services.display import display_label
 
 
 def test_asset_label_formatting() -> None:
@@ -201,3 +208,163 @@ def test_rebalance_page_approval_status_uses_persisted_status() -> None:
         )
         == "Not Required"
     )
+
+
+def test_display_label_formats_metric_names() -> None:
+    """Display labels make backend identifiers readable."""
+
+    assert display_label("annualized_return") == "Annualized Return"
+    assert display_label("maximum_drawdown") == "Maximum Drawdown"
+    assert display_label("number_of_rebalances") == "Number Of Rebalances"
+
+
+def test_payload_status_label_preserves_not_configured() -> None:
+    """Health status mapping preserves real backend states."""
+
+    assert payload_status_label({"status": "ready"}) == "Healthy"
+    assert (
+        payload_status_label({"status": "not_configured"})
+        == "Not Configured"
+    )
+    assert payload_status_label(None) == "Unavailable"
+
+
+def test_prepare_backtest_portfolio_history_data() -> None:
+    """Backtest history prep keeps returned portfolio values."""
+
+    result = prepare_backtest_portfolio_history_data(
+        [
+            {
+                "date": "initial",
+                "portfolio_value": 100_000.0,
+            },
+            {
+                "date": "1",
+                "portfolio_value": "bad",
+            },
+        ]
+    )
+
+    assert list(result["period_label"]) == ["initial"]
+    assert list(result["portfolio_value"]) == [100_000.0]
+
+
+def test_prepare_backtest_portfolio_history_handles_empty_data() -> None:
+    """Backtest chart data safely handles missing history fields."""
+
+    assert prepare_backtest_portfolio_history_data([]).empty
+    assert prepare_backtest_drawdown_data(
+        [
+            {
+                "date": "initial",
+                "portfolio_value": 100_000.0,
+            }
+        ]
+    ).empty
+
+
+def test_prepare_backtest_drawdown_data_uses_returned_series() -> None:
+    """Drawdown prep only uses a backend-provided drawdown series."""
+
+    result = prepare_backtest_drawdown_data(
+        [
+            {
+                "date": "1",
+                "drawdown": -0.02,
+            }
+        ]
+    )
+
+    assert list(result["period_label"]) == ["1"]
+    assert list(result["drawdown_percent"]) == [-2.0]
+
+
+def test_prepare_strategy_comparison_chart_data_groups_scales() -> None:
+    """Strategy comparison chart data separates incompatible scales."""
+
+    result = prepare_strategy_comparison_chart_data(
+        {
+            "buy_and_hold": {
+                "total_return": 0.10,
+                "sharpe_ratio": 0.75,
+                "transaction_costs": 0.0,
+                "number_of_rebalances": 0,
+            },
+            "threshold_rebalancing": {
+                "total_return": 0.12,
+                "sharpe_ratio": 0.90,
+                "transaction_costs": 10.0,
+                "number_of_rebalances": 2,
+            },
+        }
+    )
+
+    assert set(result) == {
+        "percentage",
+        "ratio",
+        "cost",
+        "count",
+    }
+    assert set(result["percentage"]["metric"]) == {"Total Return"}
+    assert set(result["count"]["value"]) == {0.0, 2.0}
+
+
+def test_prepare_strategy_comparison_table_data_formats_values() -> None:
+    """Comparison table prep formats side-by-side metric values."""
+
+    result = prepare_strategy_comparison_table_data(
+        {
+            "buy_and_hold": {
+                "total_return": 0.10,
+                "annualized_return": 0.08,
+                "volatility": 0.12,
+                "maximum_drawdown": 0.05,
+                "sharpe_ratio": 0.66,
+                "transaction_costs": 0.0,
+                "taxes_paid": 0.0,
+                "total_implementation_cost": 0.0,
+                "number_of_rebalances": 0,
+            },
+            "threshold_rebalancing": {
+                "total_return": 0.11,
+                "annualized_return": 0.09,
+                "volatility": 0.10,
+                "maximum_drawdown": 0.03,
+                "sharpe_ratio": 0.90,
+                "transaction_costs": 10.0,
+                "taxes_paid": 20.0,
+                "total_implementation_cost": 30.0,
+                "number_of_rebalances": 2,
+            },
+        }
+    )
+
+    assert result.loc[0, "Metric"] == "Total Return"
+    assert result.loc[0, "Buy & Hold"] == "10.00%"
+    assert result.loc[0, "Threshold Rebalancing"] == "11.00%"
+
+
+def test_prepare_rebalance_run_table_data_formats_numbers() -> None:
+    """History run table prep keeps concise persisted run fields."""
+
+    result = prepare_rebalance_run_table_data(
+        [
+            {
+                "run_id": "RUN1",
+                "status": "completed",
+                "created_at": "2026-01-01T00:00:00",
+                "portfolio_value": "100000",
+                "transaction_cost": "25.5",
+                "extra": "hidden",
+            }
+        ]
+    )
+
+    assert list(result.columns) == [
+        "run_id",
+        "status",
+        "created_at",
+        "portfolio_value",
+        "transaction_cost",
+    ]
+    assert result.loc[0, "portfolio_value"] == 100000
