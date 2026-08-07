@@ -24,6 +24,8 @@ DEFAULT_PLANNED_WITHDRAWAL = 0.0
 DEFAULT_RESTRICTED_SECURITY_COUNT = 0
 DEFAULT_ESG_PREFERENCE = False
 DEFAULT_PRIOR_APPROVAL_REQUIRED = False
+REQUIRED_WEIGHT_TOTAL = Decimal("1.0")
+WEIGHT_SUM_TOLERANCE = Decimal("0.000001")
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +206,7 @@ def _holdings_by_asset(
     result: dict[str, PortfolioHoldingModel] = {}
 
     valid_assets = set(ASSET_CLASSES)
+    weight_total = Decimal("0")
 
     for holding in holdings:
         if not isinstance(holding, PortfolioHoldingModel):
@@ -225,16 +228,58 @@ def _holdings_by_asset(
             holding.current_weight,
             "current_weight",
         )
+        if holding.current_weight < 0:
+            raise ValueError(
+                "current_weight must be non-negative."
+            )
+
         _validate_decimal(
             holding.current_value,
             "current_value",
         )
+        if holding.current_value < 0:
+            raise ValueError(
+                "current_value must be non-negative."
+            )
+
         _validate_decimal(
             holding.cost_basis,
             "cost_basis",
         )
+        if holding.cost_basis < 0:
+            raise ValueError(
+                "cost_basis must be non-negative."
+            )
 
         result[holding.asset] = holding
+        weight_total += holding.current_weight
+
+    missing_assets = valid_assets - set(result)
+
+    if missing_assets:
+        formatted_assets = ", ".join(
+            sorted(missing_assets)
+        )
+        raise ValueError(
+            "Portfolio holdings must include all required "
+            f"asset classes. Missing: {formatted_assets}."
+        )
+
+    excess_assets = set(result) - valid_assets
+
+    if excess_assets:
+        formatted_assets = ", ".join(
+            sorted(excess_assets)
+        )
+        raise ValueError(
+            "Portfolio holdings contain unsupported asset "
+            f"classes: {formatted_assets}."
+        )
+
+    if abs(weight_total - REQUIRED_WEIGHT_TOTAL) > WEIGHT_SUM_TOLERANCE:
+        raise ValueError(
+            "Portfolio holding weights must sum to 1.0."
+        )
 
     return result
 

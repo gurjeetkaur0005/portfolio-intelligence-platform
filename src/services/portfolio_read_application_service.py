@@ -130,6 +130,19 @@ class RebalanceRunDetail:
     trade_count: int
     transaction_cost: Decimal
     estimated_tax_liability: Decimal
+    approval_required_count: int
+    pending_approval_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class RebalanceApprovalDetail:
+    """Represent persisted approval metadata for one trade."""
+
+    required: bool
+    status: str
+    reason: str
+    reviewed_by: str | None
+    reviewed_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,19 +151,39 @@ class RebalanceTradeDetail:
 
     asset: str
     action: str
+    current_weight: Decimal
     trade_weight: Decimal
+    post_trade_weight: Decimal
     trade_value: Decimal
     estimated_tax: Decimal
     estimated_transaction_cost: Decimal
+    threshold_breached: bool
+    threshold_severity: str
+    breach_ratio: Decimal
+    final_trigger_type: str
+    final_priority: str
+    contributing_triggers: str
+    client_explanation: str
+    advisor_explanation: str
+    compliance_explanation: str
+    created_at: datetime
+    approval: RebalanceApprovalDetail | None
 
 
 @dataclass(frozen=True, slots=True)
 class RebalanceAuditEntry:
     """Represent one persisted audit entry."""
 
+    audit_id: str
     approval_status: str | None
     timestamp: datetime
+    event_type: str
     audit_message: str
+    asset: str
+    action: str
+    approval_reason: str | None
+    reviewed_by: str | None
+    reviewed_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -385,6 +418,8 @@ def _rebalance_run_detail(
         trade_count=len(run.trades),
         transaction_cost=_total_transaction_cost(run),
         estimated_tax_liability=_total_estimated_tax(run),
+        approval_required_count=_approval_required_count(run),
+        pending_approval_count=_pending_approval_count(run),
     )
 
 
@@ -396,10 +431,23 @@ def _rebalance_trade_detail(
     return RebalanceTradeDetail(
         asset=trade.asset,
         action=trade.action,
+        current_weight=trade.current_weight,
         trade_weight=trade.trade_weight,
+        post_trade_weight=trade.post_trade_weight,
         trade_value=trade.trade_value,
         estimated_tax=trade.estimated_tax_liability,
         estimated_transaction_cost=trade.transaction_cost,
+        threshold_breached=trade.threshold_breached,
+        threshold_severity=trade.threshold_severity,
+        breach_ratio=trade.breach_ratio,
+        final_trigger_type=trade.final_trigger_type,
+        final_priority=trade.final_priority,
+        contributing_triggers=trade.contributing_triggers,
+        client_explanation=trade.client_explanation,
+        advisor_explanation=trade.advisor_explanation,
+        compliance_explanation=trade.compliance_explanation,
+        created_at=trade.created_at,
+        approval=_approval_detail(trade),
     )
 
 
@@ -411,13 +459,51 @@ def _rebalance_audit_entry(
     approval = audit_record.trade.approval
 
     return RebalanceAuditEntry(
+        audit_id=audit_record.audit_id,
         approval_status=(
             approval.approval_status
             if approval is not None
             else None
         ),
         timestamp=audit_record.audit_timestamp,
+        event_type=audit_record.event_type,
         audit_message=audit_record.details,
+        asset=audit_record.trade.asset,
+        action=audit_record.trade.action,
+        approval_reason=(
+            approval.approval_reason
+            if approval is not None
+            else None
+        ),
+        reviewed_by=(
+            approval.reviewed_by
+            if approval is not None
+            else None
+        ),
+        reviewed_at=(
+            approval.reviewed_at
+            if approval is not None
+            else None
+        ),
+    )
+
+
+def _approval_detail(
+    trade: TradeModel,
+) -> RebalanceApprovalDetail | None:
+    """Build approval detail from persisted trade data."""
+
+    approval = trade.approval
+
+    if approval is None:
+        return None
+
+    return RebalanceApprovalDetail(
+        required=approval.approval_required,
+        status=approval.approval_status,
+        reason=approval.approval_reason,
+        reviewed_by=approval.reviewed_by,
+        reviewed_at=approval.reviewed_at,
     )
 
 
@@ -459,6 +545,38 @@ def _total_estimated_tax(
             for trade in run.trades
         ),
         Decimal("0"),
+    )
+
+
+def _approval_required_count(
+    run: RebalanceRunModel,
+) -> int:
+    """Return the number of trades requiring approval."""
+
+    return sum(
+        1
+        for trade in run.trades
+        if (
+            trade.approval is not None
+            and trade.approval.approval_required
+        )
+    )
+
+
+def _pending_approval_count(
+    run: RebalanceRunModel,
+) -> int:
+    """Return the number of trades pending approval."""
+
+    return sum(
+        1
+        for trade in run.trades
+        if (
+            trade.approval is not None
+            and trade.approval.approval_required
+            and trade.approval.approval_status.lower()
+            == "pending"
+        )
     )
 
 

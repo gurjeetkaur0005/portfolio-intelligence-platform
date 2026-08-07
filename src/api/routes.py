@@ -56,6 +56,7 @@ from src.api.schemas import (
     PortfolioSummaryResponse,
     PromptPreviewRequest,
     PromptPreviewResponse,
+    RebalanceApprovalResponse,
     RebalanceAuditEntryResponse,
     RebalanceAuditResponse,
     RebalanceExplanationResponse,
@@ -409,6 +410,12 @@ def _rebalance_detail_response(
         estimated_tax_liability=float(
             rebalance.estimated_tax_liability
         ),
+        approval_required_count=(
+            rebalance.approval_required_count
+        ),
+        pending_approval_count=(
+            rebalance.pending_approval_count
+        ),
     )
 
 
@@ -417,15 +424,42 @@ def _rebalance_trade_response(
 ) -> RebalanceTradeResponse:
     """Convert a rebalance trade DTO into an API response."""
 
+    approval = (
+        None
+        if trade.approval is None
+        else RebalanceApprovalResponse(
+            required=trade.approval.required,
+            status=trade.approval.status,
+            reason=trade.approval.reason,
+            reviewed_by=trade.approval.reviewed_by,
+            reviewed_at=trade.approval.reviewed_at,
+        )
+    )
+
     return RebalanceTradeResponse(
         asset=trade.asset,
         action=trade.action,
+        current_weight=float(trade.current_weight),
         trade_weight=float(trade.trade_weight),
+        post_trade_weight=float(trade.post_trade_weight),
         trade_value=float(trade.trade_value),
         estimated_tax=float(trade.estimated_tax),
         estimated_transaction_cost=float(
             trade.estimated_transaction_cost
         ),
+        threshold_breached=trade.threshold_breached,
+        threshold_severity=trade.threshold_severity,
+        breach_ratio=float(trade.breach_ratio),
+        final_trigger_type=trade.final_trigger_type,
+        final_priority=trade.final_priority,
+        contributing_triggers=trade.contributing_triggers,
+        client_explanation=trade.client_explanation,
+        advisor_explanation=trade.advisor_explanation,
+        compliance_explanation=(
+            trade.compliance_explanation
+        ),
+        created_at=trade.created_at,
+        approval=approval,
     )
 
 
@@ -435,9 +469,16 @@ def _rebalance_audit_entry_response(
     """Convert a rebalance audit DTO into an API response."""
 
     return RebalanceAuditEntryResponse(
+        audit_id=audit_entry.audit_id,
         approval_status=audit_entry.approval_status,
         timestamp=audit_entry.timestamp,
+        event_type=audit_entry.event_type,
         audit_message=audit_entry.audit_message,
+        asset=audit_entry.asset,
+        action=audit_entry.action,
+        approval_reason=audit_entry.approval_reason,
+        reviewed_by=audit_entry.reviewed_by,
+        reviewed_at=audit_entry.reviewed_at,
     )
 
 
@@ -1101,9 +1142,6 @@ def rebalance_stored_portfolio(
     try:
         result = service.execute_rebalance(
             portfolio_id=portfolio_id,
-            portfolio_value=Decimal(
-                str(request.portfolio_value)
-            ),
             transaction_cost_rate=Decimal(
                 str(request.transaction_cost_rate)
             ),

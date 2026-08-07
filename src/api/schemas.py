@@ -504,12 +504,6 @@ class DatabaseRebalanceRequest(BaseModel):
         frozen=True,
     )
 
-    portfolio_value: float = Field(
-        gt=0.0,
-        description=(
-            "Portfolio value used for the rebalance workflow."
-        ),
-    )
     transaction_cost_rate: float = Field(
         default=0.002,
         ge=0.0,
@@ -641,6 +635,23 @@ class RebalanceRunDetailResponse(BaseModel):
     trade_count: int
     transaction_cost: float
     estimated_tax_liability: float
+    approval_required_count: int
+    pending_approval_count: int
+
+
+class RebalanceApprovalResponse(BaseModel):
+    """Represent persisted approval metadata for one trade."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    required: bool
+    status: str
+    reason: str
+    reviewed_by: str | None
+    reviewed_at: datetime | None
 
 
 class RebalanceTradeResponse(BaseModel):
@@ -653,10 +664,23 @@ class RebalanceTradeResponse(BaseModel):
 
     asset: str
     action: str
+    current_weight: float
     trade_weight: float
+    post_trade_weight: float
     trade_value: float
     estimated_tax: float
     estimated_transaction_cost: float
+    threshold_breached: bool
+    threshold_severity: str
+    breach_ratio: float
+    final_trigger_type: str
+    final_priority: str
+    contributing_triggers: str
+    client_explanation: str
+    advisor_explanation: str
+    compliance_explanation: str
+    created_at: datetime
+    approval: RebalanceApprovalResponse | None
 
 
 class RebalanceTradeListResponse(BaseModel):
@@ -681,9 +705,16 @@ class RebalanceAuditEntryResponse(BaseModel):
         frozen=True,
     )
 
+    audit_id: str
     approval_status: str | None
     timestamp: datetime
+    event_type: str
     audit_message: str
+    asset: str
+    action: str
+    approval_reason: str | None
+    reviewed_by: str | None
+    reviewed_at: datetime | None
 
 
 class RebalanceAuditResponse(BaseModel):
