@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -294,6 +295,43 @@ def test_seeded_portfolios_are_returned_by_read_api(
         }
         for index in range(1, 11)
     ]
+
+
+def test_new_database_rebalance_read_api_returns_completed_at(
+    session_factory: DatabaseSessionFactory,
+) -> None:
+    seed_script.seed_development_portfolios(session_factory)
+
+    def override_database_session() -> Iterator[object]:
+        with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_database_session] = (
+        override_database_session
+    )
+
+    try:
+        client = TestClient(app)
+        rebalance_response = client.post(
+            "/portfolios/DEV-P00001/rebalance",
+            json={"transaction_cost_rate": 0.002},
+        )
+        run_id = rebalance_response.json()["run_id"]
+        read_response = client.get(
+            f"/rebalances/{run_id}"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert rebalance_response.status_code == 200
+    assert read_response.status_code == 200
+
+    body = read_response.json()
+    assert body["completed_at"] is not None
+    assert (
+        datetime.fromisoformat(body["completed_at"])
+        >= datetime.fromisoformat(body["created_at"])
+    )
 
 
 def _load_portfolios(

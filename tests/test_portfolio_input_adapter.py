@@ -89,3 +89,62 @@ def test_adapter_rejects_unknown_holding_asset() -> None:
         match="Unsupported holding asset",
     ):
         PortfolioInputAdapter().build_input(portfolio)
+
+
+def test_adapter_rejects_missing_required_asset() -> None:
+    portfolio = _build_stored_portfolio()
+    portfolio.holdings = portfolio.holdings[:-1]
+
+    with pytest.raises(
+        ValueError,
+        match="Missing",
+    ):
+        PortfolioInputAdapter().build_input(portfolio)
+
+
+def test_adapter_rejects_invalid_weight_total() -> None:
+    portfolio = _build_stored_portfolio()
+    portfolio.holdings[0].current_weight = Decimal(
+        "0.3900000000"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="sum to 1.0",
+    ):
+        PortfolioInputAdapter().build_input(portfolio)
+
+
+def test_adapter_rejects_duplicate_asset() -> None:
+    portfolio = _build_stored_portfolio()
+    portfolio.holdings[-1].asset = "domestic_equity"
+
+    with pytest.raises(
+        ValueError,
+        match="Duplicate holding asset",
+    ):
+        PortfolioInputAdapter().build_input(portfolio)
+
+
+def test_adapter_rejects_negative_weight() -> None:
+    portfolio = _build_stored_portfolio()
+    portfolio.holdings[0].current_weight = Decimal(
+        "-0.0100000000"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="current_weight must be non-negative",
+    ):
+        PortfolioInputAdapter().build_input(portfolio)
+
+
+def test_adapter_rejects_negative_current_value() -> None:
+    portfolio = _build_stored_portfolio()
+    portfolio.holdings[0].current_value = Decimal("-1.00")
+
+    with pytest.raises(
+        ValueError,
+        match="current_value must be non-negative",
+    ):
+        PortfolioInputAdapter().build_input(portfolio)

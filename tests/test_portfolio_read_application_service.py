@@ -358,6 +358,8 @@ def test_get_rebalance_returns_summary_totals() -> None:
         result.estimated_tax_liability
         == Decimal("400.00")
     )
+    assert result.approval_required_count == 0
+    assert result.pending_approval_count == 0
 
 
 def test_list_rebalance_trades_uses_repository() -> None:
@@ -385,7 +387,26 @@ def test_list_rebalance_trades_uses_repository() -> None:
     assert rebalance_repository.limit == 3
     assert rebalance_repository.offset == 1
     assert result.items[0].action == "SELL"
+    assert (
+        result.items[0].current_weight
+        == Decimal("0.6000000000")
+    )
+    assert (
+        result.items[0].post_trade_weight
+        == Decimal("0.5800000000")
+    )
     assert result.items[0].estimated_tax == Decimal("400.00")
+    assert result.items[0].threshold_breached is True
+    assert result.items[0].threshold_severity == "high"
+    assert (
+        result.items[0].breach_ratio
+        == Decimal("1.5000000000")
+    )
+    assert result.items[0].final_trigger_type == "threshold"
+    assert result.items[0].final_priority == "high"
+    assert result.items[0].client_explanation == "Client explanation."
+    assert result.items[0].approval is not None
+    assert result.items[0].approval.required is False
 
 
 def test_list_rebalance_audit_returns_audit_entries() -> None:
@@ -405,6 +426,32 @@ def test_list_rebalance_audit_returns_audit_entries() -> None:
     assert rebalance_repository.audit_run_id == "RUN000001"
     assert rebalance_repository.limit == 4
     assert rebalance_repository.offset == 2
+    assert result.items[0].audit_id == "AUD000001"
     assert result.items[0].approval_status == "NOT_REQUIRED"
     assert result.items[0].timestamp == TIMESTAMP
+    assert result.items[0].event_type == "TRADE_RECOMMENDATION"
     assert result.items[0].audit_message == "Trade recorded."
+    assert result.items[0].asset == "domestic_equity"
+    assert result.items[0].action == "SELL"
+    assert (
+        result.items[0].approval_reason
+        == "Automatic approval."
+    )
+
+
+def test_list_rebalance_trades_handles_missing_approval() -> None:
+    portfolio = _build_portfolio()
+    run = _build_run(portfolio)
+    run.trades[0].approval = None
+    service, _, _ = _build_service(
+        portfolio=portfolio,
+        run=run,
+    )
+
+    result = service.list_rebalance_trades(
+        "RUN000001",
+        limit=20,
+        offset=0,
+    )
+
+    assert result.items[0].approval is None

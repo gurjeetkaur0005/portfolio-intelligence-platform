@@ -19,6 +19,7 @@ from src.services.portfolio_read_application_service import (
     PortfolioHolding,
     PortfolioSummary,
     RebalanceAuditEntry,
+    RebalanceApprovalDetail,
     RebalanceRunDetail,
     RebalanceRunSummary,
     RebalanceTradeDetail,
@@ -176,6 +177,8 @@ class FakePortfolioReadService:
             trade_count=1,
             transaction_cost=Decimal("40.00"),
             estimated_tax_liability=Decimal("400.00"),
+            approval_required_count=1,
+            pending_approval_count=1,
         )
 
     def list_rebalance_trades(
@@ -206,10 +209,29 @@ class FakePortfolioReadService:
             RebalanceTradeDetail(
                 asset="domestic_equity",
                 action="SELL",
+                current_weight=Decimal("0.6000000000"),
                 trade_weight=Decimal("-0.0200000000"),
+                post_trade_weight=Decimal("0.5800000000"),
                 trade_value=Decimal("-20000.00"),
                 estimated_tax=Decimal("400.00"),
                 estimated_transaction_cost=Decimal("40.00"),
+                threshold_breached=True,
+                threshold_severity="high",
+                breach_ratio=Decimal("1.5000000000"),
+                final_trigger_type="threshold",
+                final_priority="high",
+                contributing_triggers="threshold",
+                client_explanation="Client explanation.",
+                advisor_explanation="Advisor explanation.",
+                compliance_explanation="Compliance explanation.",
+                created_at=TIMESTAMP,
+                approval=RebalanceApprovalDetail(
+                    required=True,
+                    status="pending",
+                    reason="Review required.",
+                    reviewed_by=None,
+                    reviewed_at=None,
+                ),
             )
         ]
 
@@ -246,9 +268,16 @@ class FakePortfolioReadService:
 
         items = [
             RebalanceAuditEntry(
+                audit_id="AUD000001",
                 approval_status="NOT_REQUIRED",
                 timestamp=TIMESTAMP,
+                event_type="TRADE_RECOMMENDATION",
                 audit_message="Trade recorded.",
+                asset="domestic_equity",
+                action="SELL",
+                approval_reason="Automatic approval.",
+                reviewed_by="advisor-1",
+                reviewed_at=TIMESTAMP,
             )
         ]
 
@@ -411,6 +440,8 @@ def test_get_rebalance_returns_success() -> None:
         response.json()["estimated_tax_liability"]
         == 400.0
     )
+    assert response.json()["approval_required_count"] == 1
+    assert response.json()["pending_approval_count"] == 1
 
 
 def test_get_rebalance_returns_404() -> None:
@@ -440,10 +471,29 @@ def test_list_rebalance_trades_returns_success() -> None:
         {
             "asset": "domestic_equity",
             "action": "SELL",
+            "current_weight": 0.6,
             "trade_weight": -0.02,
+            "post_trade_weight": 0.58,
             "trade_value": -20000.0,
             "estimated_tax": 400.0,
             "estimated_transaction_cost": 40.0,
+            "threshold_breached": True,
+            "threshold_severity": "high",
+            "breach_ratio": 1.5,
+            "final_trigger_type": "threshold",
+            "final_priority": "high",
+            "contributing_triggers": "threshold",
+            "client_explanation": "Client explanation.",
+            "advisor_explanation": "Advisor explanation.",
+            "compliance_explanation": "Compliance explanation.",
+            "created_at": "2026-08-05T12:30:00Z",
+            "approval": {
+                "required": True,
+                "status": "pending",
+                "reason": "Review required.",
+                "reviewed_by": None,
+                "reviewed_at": None,
+            },
         }
     ]
 
@@ -472,9 +522,16 @@ def test_list_rebalance_audit_returns_success() -> None:
     assert response.status_code == 200
     assert response.json()["items"] == [
         {
+            "audit_id": "AUD000001",
             "approval_status": "NOT_REQUIRED",
             "timestamp": "2026-08-05T12:30:00Z",
+            "event_type": "TRADE_RECOMMENDATION",
             "audit_message": "Trade recorded.",
+            "asset": "domestic_equity",
+            "action": "SELL",
+            "approval_reason": "Automatic approval.",
+            "reviewed_by": "advisor-1",
+            "reviewed_at": "2026-08-05T12:30:00Z",
         }
     ]
 

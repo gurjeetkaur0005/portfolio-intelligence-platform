@@ -38,13 +38,11 @@ class FakeRebalanceApplicationService:
         self,
         *,
         portfolio_id: str,
-        portfolio_value: Decimal,
         transaction_cost_rate: Decimal,
         run_id: str | None = None,
     ) -> PersistedRebalanceResult:
         self.called = True
         self.portfolio_id = portfolio_id
-        self.portfolio_value = portfolio_value
         self.transaction_cost_rate = transaction_cost_rate
 
         if self.error is not None:
@@ -76,7 +74,6 @@ def test_database_rebalance_endpoint_returns_success() -> None:
     response = client.post(
         "/portfolios/P00001/rebalance",
         json={
-            "portfolio_value": 500_000.0,
             "transaction_cost_rate": 0.001,
         },
     )
@@ -91,8 +88,22 @@ def test_database_rebalance_endpoint_returns_success() -> None:
         "message": "Workflow completed.",
     }
     assert service.called is True
-    assert service.portfolio_value == Decimal("500000.0")
     assert service.transaction_cost_rate == Decimal("0.001")
+
+
+def test_database_rebalance_endpoint_does_not_require_portfolio_value(
+) -> None:
+    service = FakeRebalanceApplicationService()
+    _override_service(service)
+
+    response = client.post(
+        "/portfolios/P00001/rebalance",
+        json={},
+    )
+
+    assert response.status_code == 200
+    assert service.called is True
+    assert service.transaction_cost_rate == Decimal("0.002")
 
 
 def test_database_rebalance_endpoint_returns_404_when_missing(
@@ -105,7 +116,6 @@ def test_database_rebalance_endpoint_returns_404_when_missing(
     response = client.post(
         "/portfolios/P404/rebalance",
         json={
-            "portfolio_value": 500_000.0,
             "transaction_cost_rate": 0.001,
         },
     )
@@ -126,7 +136,6 @@ def test_database_rebalance_endpoint_rejects_invalid_request(
     response = client.post(
         "/portfolios/P00001/rebalance",
         json={
-            "portfolio_value": 500_000.0,
             "transaction_cost_rate": 0.001,
             "unexpected": "field",
         },
@@ -136,7 +145,7 @@ def test_database_rebalance_endpoint_rejects_invalid_request(
     assert service.called is False
 
 
-def test_database_rebalance_endpoint_rejects_invalid_portfolio_value(
+def test_database_rebalance_endpoint_rejects_portfolio_value_override(
 ) -> None:
     service = FakeRebalanceApplicationService()
     _override_service(service)
@@ -144,7 +153,7 @@ def test_database_rebalance_endpoint_rejects_invalid_portfolio_value(
     response = client.post(
         "/portfolios/P00001/rebalance",
         json={
-            "portfolio_value": 0,
+            "portfolio_value": 1,
             "transaction_cost_rate": 0.001,
         },
     )
@@ -161,7 +170,6 @@ def test_database_rebalance_endpoint_rejects_invalid_transaction_cost(
     response = client.post(
         "/portfolios/P00001/rebalance",
         json={
-            "portfolio_value": 500_000.0,
             "transaction_cost_rate": 1.01,
         },
     )
@@ -180,7 +188,6 @@ def test_database_rebalance_endpoint_handles_execution_failure(
     response = client.post(
         "/portfolios/P00001/rebalance",
         json={
-            "portfolio_value": 500_000.0,
             "transaction_cost_rate": 0.001,
         },
     )
@@ -203,7 +210,6 @@ def test_database_rebalance_endpoint_handles_persistence_failure(
     response = client.post(
         "/portfolios/P00001/rebalance",
         json={
-            "portfolio_value": 500_000.0,
             "transaction_cost_rate": 0.001,
         },
     )
@@ -244,7 +250,6 @@ def test_database_rebalance_endpoint_uses_dependency_override(
     response = client.post(
         "/portfolios/OVERRIDE/rebalance",
         json={
-            "portfolio_value": 250_000.0,
             "transaction_cost_rate": 0.002,
         },
     )

@@ -79,6 +79,7 @@ class RebalancePersistenceService:
         transaction_cost_rate: Decimal,
         run_id: str | None = None,
         status: str = "SUCCESS",
+        started_at: datetime | None = None,
         completed_at: datetime | None = None,
     ) -> RebalanceRunModel:
         """
@@ -97,6 +98,8 @@ class RebalancePersistenceService:
                 Optional external run identifier.
             status:
                 Workflow completion status.
+            started_at:
+                Optional workflow start timestamp.
             completed_at:
                 Optional workflow completion timestamp.
 
@@ -169,12 +172,16 @@ class RebalancePersistenceService:
             transaction_cost_rate=(
                 normalized_transaction_cost_rate
             ),
+            started_at=started_at,
             completed_at=completed_at,
         )
 
         for _, row in portfolio_rows.iterrows():
             rebalance_run.trades.append(
-                _build_trade_model(row)
+                _build_trade_model(
+                    row=row,
+                    run_id=rebalance_run.run_id,
+                )
             )
 
         portfolio.rebalance_runs.append(
@@ -187,7 +194,9 @@ class RebalancePersistenceService:
 
 
 def _build_trade_model(
+    *,
     row: pd.Series,
+    run_id: str,
 ) -> TradeModel:
     """Convert one final pipeline row into a TradeModel graph."""
 
@@ -280,9 +289,12 @@ def _build_trade_model(
     )
 
     trade.audit_record = AuditRecordModel(
-        audit_id=_required_string(
-            row,
-            "audit_id",
+        audit_id=_build_database_audit_id(
+            run_id=run_id,
+            audit_id=_required_string(
+                row,
+                "audit_id",
+            ),
         ),
         audit_timestamp=_required_datetime(
             row,
@@ -305,6 +317,19 @@ def _build_trade_model(
     )
 
     return trade
+
+
+def _build_database_audit_id(
+    *,
+    run_id: str,
+    audit_id: str,
+) -> str:
+    """Build a run-scoped audit ID for database uniqueness."""
+
+    return (
+        f"{_validate_non_empty_string(run_id, 'run_id')}-"
+        f"{_validate_non_empty_string(audit_id, 'audit_id')}"
+    )
 
 
 def _validate_trade_results(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 
 import pandas as pd
@@ -145,6 +146,8 @@ class FakePersistenceService:
         self.received_transaction_cost_rate: (
             Decimal | None
         ) = None
+        self.received_started_at: datetime | None = None
+        self.received_completed_at: datetime | None = None
         self.received_run_id: str | None = None
         self.received_status: str | None = None
 
@@ -155,6 +158,8 @@ class FakePersistenceService:
         trade_results: pd.DataFrame,
         portfolio_value: Decimal,
         transaction_cost_rate: Decimal,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
         run_id: str | None = None,
         status: str = "SUCCESS",
     ) -> RebalanceRunModel:
@@ -171,6 +176,8 @@ class FakePersistenceService:
         self.received_transaction_cost_rate = (
             transaction_cost_rate
         )
+        self.received_started_at = started_at
+        self.received_completed_at = completed_at
         self.received_run_id = run_id
         self.received_status = status
 
@@ -314,7 +321,6 @@ def test_execute_rebalance_returns_persisted_result() -> None:
 
     result = service.execute_rebalance(
         portfolio_id="P-STORED-001",
-        portfolio_value=Decimal("1000000.00"),
         transaction_cost_rate=Decimal("0.002"),
         run_id="RUN000001",
     )
@@ -343,7 +349,6 @@ def test_service_loads_requested_portfolio() -> None:
 
     service.execute_rebalance(
         portfolio_id=" P-STORED-001 ",
-        portfolio_value=Decimal("1000000.00"),
         transaction_cost_rate=Decimal("0.002"),
     )
 
@@ -358,15 +363,24 @@ def test_service_loads_requested_portfolio() -> None:
 
 
 def test_service_passes_values_to_portfolio_engine() -> None:
+    portfolio = _build_portfolio()
+    portfolio.portfolio_value = Decimal("750000.00")
+    portfolio_repository = FakePortfolioRepository(
+        portfolio
+    )
     portfolio_engine = FakePortfolioEngine()
+    persistence_service = FakePersistenceService(
+        _build_persisted_run()
+    )
 
     service = _build_service(
+        portfolio_repository=portfolio_repository,
         portfolio_engine=portfolio_engine,
+        persistence_service=persistence_service,
     )
 
     service.execute_rebalance(
         portfolio_id="P-STORED-001",
-        portfolio_value=Decimal("750000.00"),
         transaction_cost_rate=Decimal("0.001"),
     )
 
@@ -379,6 +393,32 @@ def test_service_passes_values_to_portfolio_engine() -> None:
     assert (
         portfolio_engine.received_transaction_cost_rate
         == 0.001
+    )
+    assert (
+        persistence_service.received_portfolio_value
+        == Decimal("750000.00")
+    )
+
+
+def test_service_persists_successful_completion_timestamps() -> None:
+    persistence_service = FakePersistenceService(
+        _build_persisted_run()
+    )
+
+    service = _build_service(
+        persistence_service=persistence_service,
+    )
+
+    service.execute_rebalance(
+        portfolio_id="P-STORED-001",
+        transaction_cost_rate=Decimal("0.002"),
+    )
+
+    assert persistence_service.received_started_at is not None
+    assert persistence_service.received_completed_at is not None
+    assert (
+        persistence_service.received_completed_at
+        >= persistence_service.received_started_at
     )
 
 
@@ -393,7 +433,6 @@ def test_service_persists_only_requested_portfolio() -> None:
 
     service.execute_rebalance(
         portfolio_id="P-STORED-001",
-        portfolio_value=Decimal("1000000.00"),
         transaction_cost_rate=Decimal("0.002"),
     )
 
@@ -424,7 +463,6 @@ def test_service_rejects_generated_portfolio_results() -> None:
     ):
         service.execute_rebalance(
             portfolio_id="P-STORED-001",
-            portfolio_value=Decimal("1000000.00"),
             transaction_cost_rate=Decimal("0.002"),
         )
 
@@ -441,7 +479,6 @@ def test_service_does_not_mutate_engine_result() -> None:
 
     service.execute_rebalance(
         portfolio_id="P-STORED-001",
-        portfolio_value=Decimal("1000000.00"),
         transaction_cost_rate=Decimal("0.002"),
     )
 
@@ -464,7 +501,6 @@ def test_missing_portfolio_error_is_preserved() -> None:
     ):
         service.execute_rebalance(
             portfolio_id="UNKNOWN",
-            portfolio_value=Decimal("1000000.00"),
             transaction_cost_rate=Decimal("0.002"),
         )
 
@@ -482,7 +518,6 @@ def test_failed_portfolio_engine_raises_execution_error() -> None:
     ):
         service.execute_rebalance(
             portfolio_id="P-STORED-001",
-            portfolio_value=Decimal("1000000.00"),
             transaction_cost_rate=Decimal("0.002"),
         )
 
@@ -500,7 +535,6 @@ def test_empty_result_raises_execution_error() -> None:
     ):
         service.execute_rebalance(
             portfolio_id="P-STORED-001",
-            portfolio_value=Decimal("1000000.00"),
             transaction_cost_rate=Decimal("0.002"),
         )
 
@@ -519,7 +553,6 @@ def test_persistence_failure_is_wrapped() -> None:
     ):
         service.execute_rebalance(
             portfolio_id="P-STORED-001",
-            portfolio_value=Decimal("1000000.00"),
             transaction_cost_rate=Decimal("0.002"),
         )
 
@@ -536,12 +569,17 @@ def test_persistence_failure_is_wrapped() -> None:
 def test_invalid_portfolio_value_is_rejected(
     portfolio_value: Decimal,
 ) -> None:
-    service = _build_service()
+    portfolio = _build_portfolio()
+    portfolio.portfolio_value = portfolio_value
+    service = _build_service(
+        portfolio_repository=FakePortfolioRepository(
+            portfolio
+        )
+    )
 
     with pytest.raises(ValueError):
         service.execute_rebalance(
             portfolio_id="P-STORED-001",
-            portfolio_value=portfolio_value,
             transaction_cost_rate=Decimal("0.002"),
         )
 
@@ -563,7 +601,6 @@ def test_invalid_transaction_cost_rate_is_rejected(
     with pytest.raises(ValueError):
         service.execute_rebalance(
             portfolio_id="P-STORED-001",
-            portfolio_value=Decimal("1000000.00"),
             transaction_cost_rate=(
                 transaction_cost_rate
             ),
@@ -579,6 +616,5 @@ def test_empty_portfolio_id_is_rejected() -> None:
     ):
         service.execute_rebalance(
             portfolio_id="   ",
-            portfolio_value=Decimal("1000000.00"),
             transaction_cost_rate=Decimal("0.002"),
         )

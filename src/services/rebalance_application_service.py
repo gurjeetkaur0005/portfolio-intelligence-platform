@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Protocol
 from uuid import uuid4
@@ -10,6 +11,7 @@ import pandas as pd
 from src.database.models import (
     PortfolioModel,
     RebalanceRunModel,
+    utc_now,
 )
 from src.pipeline.rebalance_pipeline import (
     run_rebalance_pipeline_for_inputs,
@@ -71,6 +73,8 @@ class RebalancePersistenceProtocol(Protocol):
         trade_results: pd.DataFrame,
         portfolio_value: Decimal,
         transaction_cost_rate: Decimal,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
         run_id: str | None = None,
         status: str = "SUCCESS",
     ) -> RebalanceRunModel:
@@ -143,7 +147,6 @@ class RebalanceApplicationService:
         self,
         *,
         portfolio_id: str,
-        portfolio_value: Decimal,
         transaction_cost_rate: Decimal,
         run_id: str | None = None,
     ) -> PersistedRebalanceResult:
@@ -153,8 +156,6 @@ class RebalanceApplicationService:
         Args:
             portfolio_id:
                 External business identifier of the persisted portfolio.
-            portfolio_value:
-                Monetary value used by the deterministic workflow.
             transaction_cost_rate:
                 Transaction-cost rate expressed as a decimal.
             run_id:
@@ -180,10 +181,6 @@ class RebalanceApplicationService:
             portfolio_id,
             "portfolio_id",
         )
-        normalized_portfolio_value = _validate_positive_decimal(
-            portfolio_value,
-            "portfolio_value",
-        )
         normalized_transaction_cost_rate = _validate_rate(
             transaction_cost_rate,
             "transaction_cost_rate",
@@ -203,6 +200,11 @@ class RebalanceApplicationService:
                 normalized_portfolio_id
             )
         )
+        normalized_portfolio_value = _validate_positive_decimal(
+            portfolio.portfolio_value,
+            "portfolio.portfolio_value",
+        )
+        started_at = utc_now()
         logger.info(
             "rebalance_start portfolio_id=%s run_id=%s",
             normalized_portfolio_id,
@@ -225,6 +227,8 @@ class RebalanceApplicationService:
             portfolio_id=normalized_portfolio_id,
         )
 
+        completed_at = utc_now()
+
         try:
             persisted_run = (
                 self._persistence_service
@@ -239,6 +243,8 @@ class RebalanceApplicationService:
                     ),
                     run_id=normalized_run_id,
                     status="success",
+                    started_at=started_at,
+                    completed_at=completed_at,
                 )
             )
         except Exception as error:

@@ -178,6 +178,22 @@ def test_service_persists_complete_rebalance_graph(
     service = RebalancePersistenceService(
         repository
     )
+    started_at = datetime(
+        2026,
+        8,
+        4,
+        10,
+        0,
+        tzinfo=timezone.utc,
+    )
+    completed_at = datetime(
+        2026,
+        8,
+        4,
+        10,
+        1,
+        tzinfo=timezone.utc,
+    )
 
     result = service.persist_rebalance_result(
         portfolio=persisted_portfolio,
@@ -185,19 +201,25 @@ def test_service_persists_complete_rebalance_graph(
         portfolio_value=Decimal("1000000.00"),
         transaction_cost_rate=Decimal("0.002"),
         run_id="RUN000001",
-        completed_at=datetime.now(
-            timezone.utc
-        ),
+        started_at=started_at,
+        completed_at=completed_at,
     )
 
     assert result.id is not None
     assert result.run_id == "RUN000001"
+    assert result.started_at == started_at
+    assert result.completed_at == completed_at
+    assert result.completed_at >= result.started_at
     assert len(result.trades) == 2
 
     first_trade = result.trades[0]
 
     assert first_trade.approval is not None
     assert first_trade.audit_record is not None
+    assert (
+        first_trade.audit_record.audit_id
+        == "RUN000001-AUD000001"
+    )
 
 
 def test_service_preserves_signed_trade_values(
@@ -235,6 +257,52 @@ def test_service_preserves_signed_trade_values(
         ].trade_value
         == Decimal("20000.00")
     )
+
+
+def test_service_scopes_audit_ids_by_run(
+    database_session: Session,
+    persisted_portfolio: PortfolioModel,
+) -> None:
+    service = RebalancePersistenceService(
+        RebalanceRunRepository(
+            database_session
+        )
+    )
+
+    first_run = service.persist_rebalance_result(
+        portfolio=persisted_portfolio,
+        trade_results=_build_trade_results(),
+        portfolio_value=Decimal("1000000.00"),
+        transaction_cost_rate=Decimal("0.002"),
+        run_id="RUN000001",
+    )
+    second_run = service.persist_rebalance_result(
+        portfolio=persisted_portfolio,
+        trade_results=_build_trade_results(),
+        portfolio_value=Decimal("1000000.00"),
+        transaction_cost_rate=Decimal("0.002"),
+        run_id="RUN000002",
+    )
+
+    first_audit_ids = {
+        trade.audit_record.audit_id
+        for trade in first_run.trades
+        if trade.audit_record is not None
+    }
+    second_audit_ids = {
+        trade.audit_record.audit_id
+        for trade in second_run.trades
+        if trade.audit_record is not None
+    }
+
+    assert first_audit_ids == {
+        "RUN000001-AUD000001",
+        "RUN000001-AUD000002",
+    }
+    assert second_audit_ids == {
+        "RUN000002-AUD000001",
+        "RUN000002-AUD000002",
+    }
 
 
 def test_service_does_not_mutate_dataframe(
