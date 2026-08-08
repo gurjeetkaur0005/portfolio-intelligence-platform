@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -10,7 +11,9 @@ from src.database.models import (
     ClientModel,
     PortfolioModel,
     RebalanceRunModel,
+    TradeModel,
 )
+from src.database.config import get_database_url
 from src.database.session import (
     DatabaseSessionFactory,
     get_database_session_factory,
@@ -21,6 +24,16 @@ from src.utils.logger import get_logger
 SMOKE_CLIENT_ID_PATTERN = "C-SMOKE-%"
 SMOKE_PORTFOLIO_ID_PATTERN = "P-SMOKE-%"
 SMOKE_PORTFOLIO_ID_PREFIX = "P-SMOKE-"
+DEV_PORTFOLIO_ID_PREFIX = "DEV-P"
+LOCAL_DATABASE_HOSTS = {
+    "localhost",
+    "127.0.0.1",
+    "::1",
+}
+UNSAFE_DATABASE_NAME_PARTS = {
+    "prod",
+    "production",
+}
 
 logger = get_logger(__name__)
 
@@ -33,6 +46,9 @@ class CleanupResult:
     deleted_clients: int
     deleted_holdings: int
     deleted_rebalance_runs: int
+    deleted_trades: int = 0
+    deleted_approvals: int = 0
+    deleted_audit_records: int = 0
     failed: bool = False
 
 
@@ -47,11 +63,32 @@ def cleanup_smoke_test_data(
     outside the cleanup criteria and are preserved.
     """
 
-    resolved_session_factory = (
-        session_factory
-        if session_factory is not None
-        else get_database_session_factory()
-    )
+    if session_factory is None:
+        try:
+            database_url = get_database_url()
+        except ValueError:
+            logger.error("smoke_test_cleanup_missing_database_url")
+            return CleanupResult(
+                deleted_portfolios=0,
+                deleted_clients=0,
+                deleted_holdings=0,
+                deleted_rebalance_runs=0,
+                failed=True,
+            )
+
+        if not _is_local_development_database_url(database_url):
+            logger.error("smoke_test_cleanup_refused_non_local_database")
+            return CleanupResult(
+                deleted_portfolios=0,
+                deleted_clients=0,
+                deleted_holdings=0,
+                deleted_rebalance_runs=0,
+                failed=True,
+            )
+
+        resolved_session_factory = get_database_session_factory()
+    else:
+        resolved_session_factory = session_factory
 
     with resolved_session_factory() as session:
         try:
@@ -71,11 +108,15 @@ def cleanup_smoke_test_data(
     logger.info(
         "smoke_test_cleanup_complete deleted_portfolios=%s "
         "deleted_clients=%s deleted_holdings=%s "
-        "deleted_rebalance_runs=%s",
+        "deleted_rebalance_runs=%s deleted_trades=%s "
+        "deleted_approvals=%s deleted_audit_records=%s",
         result.deleted_portfolios,
         result.deleted_clients,
         result.deleted_holdings,
         result.deleted_rebalance_runs,
+        result.deleted_trades,
+        result.deleted_approvals,
+        result.deleted_audit_records,
     )
 
     return result
@@ -152,6 +193,25 @@ def _cleanup_smoke_records(
         len(portfolio.rebalance_runs)
         for portfolio in portfolios_to_delete
     )
+    deleted_trades = sum(
+        len(rebalance_run.trades)
+        for portfolio in portfolios_to_delete
+        for rebalance_run in portfolio.rebalance_runs
+    )
+    deleted_approvals = sum(
+        1
+        for portfolio in portfolios_to_delete
+        for rebalance_run in portfolio.rebalance_runs
+        for trade in rebalance_run.trades
+        if trade.approval is not None
+    )
+    deleted_audit_records = sum(
+        1
+        for portfolio in portfolios_to_delete
+        for rebalance_run in portfolio.rebalance_runs
+        for trade in rebalance_run.trades
+        if trade.audit_record is not None
+    )
 
     for portfolio in independent_portfolios:
         session.delete(portfolio)
@@ -164,6 +224,9 @@ def _cleanup_smoke_records(
         deleted_clients=len(deletable_clients),
         deleted_holdings=deleted_holdings,
         deleted_rebalance_runs=deleted_rebalance_runs,
+        deleted_trades=deleted_trades,
+        deleted_approvals=deleted_approvals,
+        deleted_audit_records=deleted_audit_records,
     )
 
 
@@ -183,6 +246,15 @@ def _load_smoke_clients(
                 PortfolioModel.rebalance_runs
             ).selectinload(
                 RebalanceRunModel.trades
+            ).selectinload(
+                TradeModel.approval
+            ),
+            selectinload(ClientModel.portfolios).selectinload(
+                PortfolioModel.rebalance_runs
+            ).selectinload(
+                RebalanceRunModel.trades
+            ).selectinload(
+                TradeModel.audit_record
             ),
         )
         .order_by(ClientModel.client_id)
@@ -207,6 +279,13 @@ def _load_smoke_portfolios(
             selectinload(PortfolioModel.holdings),
             selectinload(PortfolioModel.rebalance_runs).selectinload(
                 RebalanceRunModel.trades
+            ).selectinload(
+                TradeModel.approval
+            ),
+            selectinload(PortfolioModel.rebalance_runs).selectinload(
+                RebalanceRunModel.trades
+            ).selectinload(
+                TradeModel.audit_record
             ),
         )
         .order_by(PortfolioModel.portfolio_id)
@@ -220,7 +299,36 @@ def _is_smoke_portfolio_id(
 ) -> bool:
     """Return whether a portfolio ID matches the smoke-test prefix."""
 
-    return portfolio_id.startswith(SMOKE_PORTFOLIO_ID_PREFIX)
+    return (
+        portfolio_id.startswith(SMOKE_PORTFOLIO_ID_PREFIX)
+        and not portfolio_id.startswith(DEV_PORTFOLIO_ID_PREFIX)
+    )
+
+
+def _is_local_development_database_url(
+    database_url: str,
+) -> bool:
+    """Return whether a database URL is safe for local cleanup."""
+
+    parsed_url = urlparse(database_url)
+
+    if parsed_url.scheme.startswith("sqlite"):
+        return True
+
+    if not parsed_url.scheme.startswith("postgresql"):
+        return False
+
+    hostname = parsed_url.hostname
+
+    if hostname not in LOCAL_DATABASE_HOSTS:
+        return False
+
+    database_name = parsed_url.path.rsplit("/", maxsplit=1)[-1].lower()
+
+    return not any(
+        unsafe_part in database_name
+        for unsafe_part in UNSAFE_DATABASE_NAME_PARTS
+    )
 
 
 def main() -> None:
