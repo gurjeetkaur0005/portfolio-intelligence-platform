@@ -3,6 +3,7 @@ import pytest
 
 from src.backtesting.performance_metrics import (
     calculate_annualized_return,
+    calculate_drawdown_series,
     calculate_maximum_drawdown,
     calculate_sharpe_ratio,
     calculate_total_return,
@@ -342,7 +343,7 @@ def test_calculate_maximum_drawdown() -> None:
 
     result = calculate_maximum_drawdown(portfolio_values)
 
-    assert result == pytest.approx(0.40)
+    assert result == pytest.approx(-0.40)
 
 
 def test_calculate_maximum_drawdown_with_no_loss() -> None:
@@ -368,7 +369,7 @@ def test_calculate_maximum_drawdown_for_continuous_decline() -> None:
 
     result = calculate_maximum_drawdown(portfolio_values)
 
-    assert result == pytest.approx(0.30)
+    assert result == pytest.approx(-0.30)
 
 
 def test_calculate_maximum_drawdown_uses_peak_not_previous_value() -> None:
@@ -382,10 +383,101 @@ def test_calculate_maximum_drawdown_uses_peak_not_previous_value() -> None:
     result = calculate_maximum_drawdown(portfolio_values)
 
     expected_drawdown = (
-        150.0 - 90.0
-    ) / 150.0
+        90.0 / 150.0
+    ) - 1.0
 
     assert result == pytest.approx(expected_drawdown)
+
+
+def test_calculate_drawdown_series() -> None:
+    portfolio_values = [
+        100.0,
+        110.0,
+        105.0,
+        90.0,
+    ]
+
+    result = calculate_drawdown_series(portfolio_values)
+
+    assert result == pytest.approx(
+        [
+            0.0,
+            0.0,
+            -0.045454545,
+            -0.181818181,
+        ]
+    )
+
+
+def test_calculate_drawdown_series_for_continuously_rising_values() -> None:
+    portfolio_values = [
+        100.0,
+        110.0,
+        120.0,
+    ]
+
+    result = calculate_drawdown_series(portfolio_values)
+
+    assert result == pytest.approx(
+        [
+            0.0,
+            0.0,
+            0.0,
+        ]
+    )
+
+
+def test_calculate_drawdown_series_for_single_period() -> None:
+    result = calculate_drawdown_series([100.0])
+
+    assert result == pytest.approx([0.0])
+
+
+def test_calculate_drawdown_series_recovers_to_new_high() -> None:
+    portfolio_values = [
+        100.0,
+        90.0,
+        111.0,
+    ]
+
+    result = calculate_drawdown_series(portfolio_values)
+
+    assert result == pytest.approx(
+        [
+            0.0,
+            -0.10,
+            0.0,
+        ]
+    )
+
+
+def test_maximum_drawdown_equals_minimum_drawdown_history() -> None:
+    portfolio_values = [
+        100.0,
+        110.0,
+        105.0,
+        90.0,
+    ]
+
+    assert calculate_maximum_drawdown(portfolio_values) == pytest.approx(
+        min(calculate_drawdown_series(portfolio_values))
+    )
+
+
+def test_calculate_drawdown_series_rejects_non_finite_values() -> None:
+    with pytest.raises(
+        ValueError,
+        match="Portfolio values must contain only finite numeric values.",
+    ):
+        calculate_drawdown_series([100.0, float("nan")])
+
+
+def test_calculate_drawdown_series_rejects_non_positive_values() -> None:
+    with pytest.raises(
+        ValueError,
+        match="Portfolio values must be positive.",
+    ):
+        calculate_drawdown_series([100.0, 0.0])
 
 
 def test_calculate_maximum_drawdown_requires_two_values() -> None:

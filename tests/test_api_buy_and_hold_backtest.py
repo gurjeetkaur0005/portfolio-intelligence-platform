@@ -68,7 +68,21 @@ def _backtest_result(
         annualized_return=0.12,
         volatility=0.08,
         sharpe_ratio=1.5,
-        maximum_drawdown=0.02,
+        maximum_drawdown=-0.02,
+        drawdown_history=pd.DataFrame(
+            [
+                {
+                    "period": 0,
+                    "date": "initial",
+                    "drawdown": 0.0,
+                },
+                {
+                    "period": 1,
+                    "date": 0,
+                    "drawdown": -0.02,
+                },
+            ]
+        ),
     )
 
 
@@ -175,7 +189,7 @@ def test_metrics_are_serialized_correctly() -> None:
         "annualized_return": 0.12,
         "volatility": 0.08,
         "sharpe_ratio": 1.5,
-        "maximum_drawdown": 0.02,
+        "maximum_drawdown": -0.02,
     }
 
 
@@ -210,6 +224,34 @@ def test_history_record_count_is_correct() -> None:
         app.dependency_overrides.clear()
 
     assert response.json()["history_record_count"] == 2
+
+
+def test_drawdown_history_is_serialized() -> None:
+    """Buy & Hold response exposes backend-provided drawdown history."""
+
+    _override_runner(CapturingBacktestRunner())
+
+    response = client.post(
+        "/backtests/buy-and-hold",
+        json=_valid_payload(),
+    )
+
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["metrics"]["maximum_drawdown"] == -0.02
+    assert body["drawdown_history"] == [
+        {
+            "period": 0,
+            "date": "initial",
+            "drawdown": 0.0,
+        },
+        {
+            "period": 1,
+            "date": 0,
+            "drawdown": -0.02,
+        },
+    ]
 
 
 def test_request_defaults_are_passed_to_runner() -> None:

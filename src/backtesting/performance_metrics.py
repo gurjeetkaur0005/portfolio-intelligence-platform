@@ -5,6 +5,44 @@ from typing import Sequence
 import numpy as np
 
 
+def calculate_drawdown_series(
+    portfolio_values: Sequence[float],
+) -> list[float]:
+    """
+    Calculate drawdown at each point from the previous portfolio peak.
+    """
+
+    if len(portfolio_values) == 0:
+        return []
+
+    portfolio_value_array = np.asarray(
+        portfolio_values,
+        dtype=float,
+    )
+
+    if not np.all(np.isfinite(portfolio_value_array)):
+        raise ValueError(
+            "Portfolio values must contain only finite numeric values.",
+        )
+
+    if np.any(portfolio_value_array <= 0):
+        raise ValueError(
+            "Portfolio values must be positive.",
+        )
+
+    running_peaks = np.maximum.accumulate(
+        portfolio_value_array
+    )
+    drawdowns = (
+        portfolio_value_array / running_peaks
+    ) - 1.0
+
+    return [
+        float(drawdown)
+        for drawdown in drawdowns
+    ]
+
+
 def calculate_total_return(
     portfolio_values: Sequence[float],
 ) -> float:
@@ -146,21 +184,6 @@ def calculate_maximum_drawdown(
             "At least two portfolio values are required.",
         )
 
-    peak = portfolio_values[0]
-    maximum_drawdown = 0.0
+    drawdown_series = calculate_drawdown_series(portfolio_values)
 
-    for value in portfolio_values:
-
-        if value > peak:
-            peak = value
-
-        drawdown = (
-            peak - value
-        ) / peak
-
-        maximum_drawdown = max(
-            maximum_drawdown,
-            drawdown,
-        )
-
-    return float(maximum_drawdown)
+    return float(min(drawdown_series))

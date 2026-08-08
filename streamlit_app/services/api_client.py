@@ -61,6 +61,7 @@ class PaginatedResponse:
     limit: int
     offset: int
     count: int
+    total: int | None = None
 
 
 class FastApiClient:
@@ -572,6 +573,11 @@ class FastApiClient:
             payload.get("portfolio_history"),
             "portfolio_history",
         )
+        if "drawdown_history" in payload:
+            FastApiClient._required_object_list(
+                payload.get("drawdown_history"),
+                "drawdown_history",
+            )
         FastApiClient._required_integer(
             payload.get("history_record_count"),
             "history_record_count",
@@ -670,13 +676,40 @@ class FastApiClient:
             payload.get("count"),
             "count",
         )
+        parsed_total = FastApiClient._optional_non_negative_integer(
+            payload.get("total"),
+            "total",
+        )
 
         return PaginatedResponse(
             items=items,
             limit=parsed_limit,
             offset=parsed_offset,
             count=parsed_count,
+            total=parsed_total,
         )
+
+    @staticmethod
+    def _optional_non_negative_integer(
+        value: JsonValue,
+        field_name: str,
+    ) -> int | None:
+        """Return an optional non-negative integer payload field."""
+
+        if value is None:
+            return None
+
+        parsed_value = FastApiClient._required_integer(
+            value,
+            field_name,
+        )
+
+        if parsed_value < 0:
+            raise ApiPayloadError(
+                f"Field '{field_name}' must not be negative."
+            )
+
+        return parsed_value
 
     @staticmethod
     def _parse_database_rebalance_response(

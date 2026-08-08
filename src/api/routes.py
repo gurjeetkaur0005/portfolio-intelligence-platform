@@ -621,6 +621,9 @@ def run_buy_and_hold_backtest_endpoint(
     history_records = _serialize_dataframe(
         result.portfolio_history
     )
+    drawdown_records = _serialize_dataframe(
+        result.drawdown_history
+    )
 
     return BuyAndHoldBacktestResponse(
         strategy_name="Buy & Hold",
@@ -632,6 +635,7 @@ def run_buy_and_hold_backtest_endpoint(
             maximum_drawdown=result.maximum_drawdown,
         ),
         portfolio_history=history_records,
+        drawdown_history=drawdown_records,
         history_record_count=len(history_records),
     )
 
@@ -696,11 +700,15 @@ def run_threshold_rebalancing_backtest_endpoint(
     history_records = _serialize_dataframe(
         result.portfolio_history
     )
+    drawdown_records = _serialize_dataframe(
+        result.drawdown_history
+    )
 
     return ThresholdRebalancingBacktestResponse(
         strategy_name=THRESHOLD_REBALANCING_NAME,
         metrics=_metrics_response_from_result(result),
         portfolio_history=history_records,
+        drawdown_history=drawdown_records,
         history_record_count=len(history_records),
     )
 
@@ -969,6 +977,7 @@ def list_portfolios_endpoint(
         limit=page.limit,
         offset=page.offset,
         count=page.count,
+        total=page.total if page.total is not None else page.count,
     )
 
 

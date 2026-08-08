@@ -131,7 +131,16 @@ def _fake_backtest_result(
         annualized_return=0.08,
         volatility=0.12,
         sharpe_ratio=0.66,
-        maximum_drawdown=0.05,
+        maximum_drawdown=-0.05,
+        drawdown_history=pd.DataFrame(
+            [
+                {
+                    "period": 0,
+                    "date": "initial",
+                    "drawdown": 0.0,
+                }
+            ]
+        ),
     )
 
 
@@ -270,6 +279,13 @@ def test_threshold_rebalancing_backtest_success() -> None:
     assert body["strategy_name"] == "Threshold Rebalancing"
     assert body["history_record_count"] == 1
     assert body["metrics"]["total_return"] == pytest.approx(0.10)
+    assert body["drawdown_history"] == [
+        {
+            "period": 0,
+            "date": "initial",
+            "drawdown": 0.0,
+        }
+    ]
     assert isinstance(runner.market_returns, pd.DataFrame)
 
 

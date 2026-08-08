@@ -24,22 +24,34 @@ CHART_PALETTE = [
 ]
 
 __all__ = [
+    "apply_portfoliomind_chart_layout",
     "prepare_allocation_data",
     "prepare_backtest_drawdown_data",
+    "prepare_drawdown_chart_data",
     "prepare_backtest_portfolio_history_data",
+    "prepare_backtest_strategy_drawdown_data",
+    "prepare_backtest_strategy_history_data",
     "prepare_current_vs_target_allocation_data",
     "prepare_holding_value_data",
     "prepare_portfolio_value_data",
+    "prepare_drift_chart_data",
+    "prepare_trade_value_chart_data",
+    "prepare_cost_tax_impact_data",
     "prepare_rebalance_allocation_comparison_data",
     "prepare_strategy_comparison_chart_data",
     "prepare_target_allocation_data",
     "render_allocation_donut_chart",
     "render_backtest_drawdown_history",
+    "render_backtest_strategy_drawdown_history",
     "render_backtest_portfolio_history",
+    "render_backtest_strategy_history",
     "render_current_vs_target_allocation",
     "render_holding_value_bar_chart",
+    "render_drift_chart",
     "render_portfolio_value_distribution",
     "render_rebalance_allocation_comparison",
+    "render_trade_value_chart",
+    "render_cost_tax_impact_chart",
     "render_strategy_comparison",
     "render_target_allocation_donut_chart",
 ]
@@ -75,17 +87,20 @@ def _format_asset_label(
 ) -> str:
     """Return a human-readable asset label."""
 
-    return asset.replace("_", " ").strip().title()
+    from streamlit_app.services.display import display_label
+
+    return display_label(asset)
 
 
-def _apply_chart_layout(
+def apply_portfoliomind_chart_layout(
     figure: ChartFigure,
     *,
     title: str,
-    x_title: str | None = None,
-    y_title: str | None = None,
+    xaxis_title: str | None = None,
+    yaxis_title: str | None = None,
+    legend_title: str | None = None,
 ) -> ChartFigure:
-    """Apply the shared Plotly dashboard layout."""
+    """Apply PortfolioMind's shared Plotly dashboard layout."""
 
     figure.update_layout(
         title={
@@ -117,7 +132,12 @@ def _apply_chart_layout(
             "b": 16,
         },
         legend={
-            "title": None,
+            "title": {
+                "text": legend_title,
+                "font": {
+                    "color": MUTED_COLOR,
+                },
+            },
             "orientation": "h",
             "yanchor": "bottom",
             "y": -0.22,
@@ -127,8 +147,8 @@ def _apply_chart_layout(
                 "color": MUTED_COLOR,
             },
         },
-        xaxis_title=x_title,
-        yaxis_title=y_title,
+        xaxis_title=xaxis_title,
+        yaxis_title=yaxis_title,
     )
     figure.update_xaxes(
         showgrid=True,
@@ -147,6 +167,23 @@ def _apply_chart_layout(
     )
 
     return figure
+
+
+def _apply_chart_layout(
+    figure: ChartFigure,
+    *,
+    title: str,
+    x_title: str | None = None,
+    y_title: str | None = None,
+) -> ChartFigure:
+    """Apply the shared Plotly dashboard layout."""
+
+    return apply_portfoliomind_chart_layout(
+        figure,
+        title=title,
+        xaxis_title=x_title,
+        yaxis_title=y_title,
+    )
 
 
 def prepare_holding_value_data(
@@ -200,12 +237,15 @@ def prepare_allocation_data(
     }.issubset(dataframe.columns):
         return pd.DataFrame()
 
-    result = dataframe[
-        [
-            "asset",
-            "current_weight",
-        ]
-    ].copy()
+    columns = [
+        "asset",
+        "current_weight",
+    ]
+
+    if "current_value" in dataframe.columns:
+        columns.append("current_value")
+
+    result = dataframe[columns].copy()
     result["asset_label"] = result["asset"].astype(str).map(
         _format_asset_label
     )
@@ -219,6 +259,12 @@ def prepare_allocation_data(
         ]
     )
     result["allocation_percent"] = result["current_weight"] * 100
+
+    if "current_value" in result.columns:
+        result["current_value"] = pd.to_numeric(
+            result["current_value"],
+            errors="coerce",
+        )
 
     return result
 
@@ -317,8 +363,8 @@ def prepare_current_vs_target_allocation_data(
     comparison["weight_percent"] = comparison["weight_percent"] * 100
     comparison["allocation_type"] = comparison["allocation_type"].map(
         {
-            "current_weight": "Current Weight",
-            "target_weight": "Target Weight",
+            "current_weight": "Current Allocation",
+            "target_weight": "Target Allocation",
         }
     )
 
@@ -329,6 +375,189 @@ def prepare_current_vs_target_allocation_data(
         ],
         ascending=True,
     )
+
+
+def prepare_drift_chart_data(
+    holdings: list[dict[str, object]],
+) -> pd.DataFrame:
+    """Return signed allocation drift rows for charting."""
+
+    dataframe = pd.DataFrame(holdings)
+
+    if not {
+        "asset",
+        "drift",
+    }.issubset(dataframe.columns):
+        return pd.DataFrame()
+
+    result = dataframe[
+        [
+            "asset",
+            "drift",
+        ]
+    ].copy()
+    result["asset_label"] = result["asset"].astype(str).map(
+        _format_asset_label
+    )
+    result["drift_percent"] = pd.to_numeric(
+        result["drift"],
+        errors="coerce",
+    ) * 100
+    result = result.dropna(
+        subset=[
+            "drift_percent",
+        ]
+    )
+
+    if result.empty:
+        return pd.DataFrame()
+
+    result["drift_direction"] = result["drift_percent"].map(
+        _drift_direction
+    )
+
+    return result.sort_values(
+        "drift_percent",
+        key=lambda series: series.abs(),
+        ascending=True,
+    )
+
+
+def prepare_trade_value_chart_data(
+    trades: list[dict[str, Any]],
+) -> pd.DataFrame:
+    """Return display-only trade amounts by asset and action."""
+
+    dataframe = pd.DataFrame(trades)
+
+    if not {
+        "asset",
+        "action",
+        "trade_value",
+    }.issubset(dataframe.columns):
+        return pd.DataFrame()
+
+    result = dataframe[
+        [
+            "asset",
+            "action",
+            "trade_value",
+        ]
+    ].copy()
+    result["asset_label"] = result["asset"].astype(str).map(
+        _format_asset_label
+    )
+    result["trade_value"] = pd.to_numeric(
+        result["trade_value"],
+        errors="coerce",
+    )
+    result = result.dropna(
+        subset=[
+            "trade_value",
+        ]
+    )
+
+    if result.empty:
+        return pd.DataFrame()
+
+    result["action"] = result["action"].astype(str).str.upper()
+    result["display_trade_value"] = result["trade_value"].where(
+        result["action"] != "SELL",
+        -result["trade_value"].abs(),
+    )
+    result["display_trade_value"] = result["display_trade_value"].where(
+        result["action"] != "BUY",
+        result["trade_value"].abs(),
+    )
+    result["hover_trade_value"] = result["trade_value"].abs()
+
+    return result.sort_values(
+        "display_trade_value",
+        ascending=True,
+    )
+
+
+def prepare_cost_tax_impact_data(
+    trades: list[dict[str, Any]],
+) -> pd.DataFrame:
+    """Return transaction-cost and tax rows by asset."""
+
+    dataframe = pd.DataFrame(trades)
+
+    if not {
+        "asset",
+        "estimated_transaction_cost",
+        "estimated_tax",
+    }.issubset(dataframe.columns):
+        return pd.DataFrame()
+
+    result = dataframe[
+        [
+            "asset",
+            "estimated_transaction_cost",
+            "estimated_tax",
+        ]
+    ].copy()
+    result["asset_label"] = result["asset"].astype(str).map(
+        _format_asset_label
+    )
+
+    for column in (
+        "estimated_transaction_cost",
+        "estimated_tax",
+    ):
+        result[column] = pd.to_numeric(
+            result[column],
+            errors="coerce",
+        )
+
+    result = result.dropna(
+        subset=[
+            "estimated_transaction_cost",
+            "estimated_tax",
+        ]
+    )
+
+    if result.empty:
+        return pd.DataFrame()
+
+    impact = result.melt(
+        id_vars=[
+            "asset_label",
+        ],
+        value_vars=[
+            "estimated_transaction_cost",
+            "estimated_tax",
+        ],
+        var_name="impact_type",
+        value_name="amount",
+    )
+    impact["impact_type"] = impact["impact_type"].map(
+        {
+            "estimated_transaction_cost": "Transaction Cost",
+            "estimated_tax": "Estimated Tax",
+        }
+    )
+    impact = impact[impact["amount"] > 0]
+
+    return impact.sort_values(
+        "amount",
+        ascending=True,
+    )
+
+
+def _drift_direction(
+    value: float,
+) -> str:
+    """Return a sign label for drift chart coloring."""
+
+    if value > 0:
+        return "Overweight"
+
+    if value < 0:
+        return "Underweight"
+
+    return "Near Target"
 
 
 def prepare_portfolio_value_data(
@@ -424,8 +653,8 @@ def prepare_rebalance_allocation_comparison_data(
     comparison["weight_percent"] = comparison["weight_percent"] * 100
     comparison["allocation_type"] = comparison["allocation_type"].map(
         {
-            "current_weight": "Current Weight",
-            "post_trade_weight": "Post-Trade Weight",
+            "current_weight": "Current Allocation",
+            "post_trade_weight": "Post-Trade Allocation",
         }
     )
 
@@ -477,7 +706,7 @@ def prepare_backtest_portfolio_history_data(
     return result
 
 
-def prepare_backtest_drawdown_data(
+def prepare_drawdown_chart_data(
     history: list[dict[str, Any]],
 ) -> pd.DataFrame:
     """Return drawdown history only when the backend provides it."""
@@ -523,6 +752,88 @@ def prepare_backtest_drawdown_data(
     )
 
 
+def prepare_backtest_drawdown_data(
+    history: list[dict[str, Any]],
+) -> pd.DataFrame:
+    """Return drawdown chart rows for backwards-compatible callers."""
+
+    return prepare_drawdown_chart_data(history)
+
+
+def prepare_backtest_strategy_history_data(
+    *,
+    buy_and_hold_history: list[dict[str, Any]],
+    threshold_history: list[dict[str, Any]],
+) -> pd.DataFrame:
+    """Return combined portfolio-value history for strategy comparison."""
+
+    rows: list[pd.DataFrame] = []
+
+    for strategy, history in (
+        (
+            "Buy & Hold",
+            buy_and_hold_history,
+        ),
+        (
+            "Threshold Rebalancing",
+            threshold_history,
+        ),
+    ):
+        dataframe = prepare_backtest_portfolio_history_data(history)
+
+        if dataframe.empty:
+            continue
+
+        dataframe = dataframe.copy()
+        dataframe["strategy"] = strategy
+        rows.append(dataframe)
+
+    if not rows:
+        return pd.DataFrame()
+
+    return pd.concat(
+        rows,
+        ignore_index=True,
+    )
+
+
+def prepare_backtest_strategy_drawdown_data(
+    *,
+    buy_and_hold_drawdown: list[dict[str, Any]],
+    threshold_drawdown: list[dict[str, Any]],
+) -> pd.DataFrame:
+    """Return comparable drawdown history for both strategies."""
+
+    rows: list[pd.DataFrame] = []
+
+    for strategy, history in (
+        (
+            "Buy & Hold",
+            buy_and_hold_drawdown,
+        ),
+        (
+            "Threshold Rebalancing",
+            threshold_drawdown,
+        ),
+    ):
+        dataframe = prepare_drawdown_chart_data(history)
+
+        if dataframe.empty:
+            continue
+
+        dataframe = dataframe.copy()
+        dataframe["strategy"] = strategy
+        rows.append(dataframe)
+
+    if not rows:
+        return pd.DataFrame()
+
+    return pd.concat(
+        rows,
+        ignore_index=True,
+    )
+
+
 def prepare_strategy_comparison_chart_data(
     comparison: dict[str, Any],
 ) -> dict[str, pd.DataFrame]:
@@ -537,12 +848,19 @@ def prepare_strategy_comparison_chart_data(
     ):
         return {}
 
-    percentage_rows = _strategy_comparison_rows(
+    return_rows = _strategy_comparison_rows(
         buy_and_hold=buy_and_hold,
         threshold=threshold,
         metric_names=[
             "total_return",
             "annualized_return",
+        ],
+        multiplier=100.0,
+    )
+    risk_rows = _strategy_comparison_rows(
+        buy_and_hold=buy_and_hold,
+        threshold=threshold,
+        metric_names=[
             "volatility",
             "maximum_drawdown",
         ],
@@ -578,7 +896,8 @@ def prepare_strategy_comparison_chart_data(
     dataframes: dict[str, pd.DataFrame] = {}
 
     for key, rows in {
-        "percentage": percentage_rows,
+        "return": return_rows,
+        "risk": risk_rows,
         "ratio": ratio_rows,
         "cost": cost_rows,
         "count": count_rows,
@@ -694,8 +1013,8 @@ def render_rebalance_allocation_comparison(
         barmode="group",
         orientation="h",
         color_discrete_map={
-            "Current Weight": SECONDARY_COLOR,
-            "Post-Trade Weight": ACCENT_COLOR,
+            "Current Allocation": SECONDARY_COLOR,
+            "Post-Trade Allocation": ACCENT_COLOR,
         },
     )
     figure.update_traces(
@@ -720,10 +1039,170 @@ def render_rebalance_allocation_comparison(
     )
 
 
+def render_drift_chart(
+    holdings: list[dict[str, object]],
+) -> None:
+    """Render signed current-minus-target allocation drift."""
+
+    import streamlit as st
+    import plotly.express as px
+
+    dataframe = prepare_drift_chart_data(holdings)
+
+    if dataframe.empty:
+        st.info("Drift data is unavailable.")
+        return
+
+    figure = px.bar(
+        dataframe,
+        x="drift_percent",
+        y="asset_label",
+        color="drift_direction",
+        orientation="h",
+        custom_data=[
+            "drift_direction",
+        ],
+        color_discrete_map={
+            "Overweight": POSITIVE_COLOR,
+            "Underweight": NEGATIVE_COLOR,
+            "Near Target": SECONDARY_COLOR,
+        },
+    )
+    figure.update_traces(
+        hovertemplate=(
+            "%{y}<br>"
+            "Drift: %{x:+.2f} percentage points<br>"
+            "Status: %{customdata[0]}<extra></extra>"
+        )
+    )
+    _apply_chart_layout(
+        figure,
+        title="Allocation Drift by Asset",
+        x_title="Current minus Target",
+        y_title=None,
+    )
+    figure.update_xaxes(
+        ticksuffix="%",
+        zeroline=True,
+        zerolinecolor=GRID_COLOR,
+    )
+
+    st.plotly_chart(
+        figure,
+        width="stretch",
+    )
+
+
+def render_trade_value_chart(
+    trades: list[dict[str, Any]],
+) -> None:
+    """Render display-only trade amounts by asset."""
+
+    import streamlit as st
+    import plotly.express as px
+
+    dataframe = prepare_trade_value_chart_data(trades)
+
+    if dataframe.empty:
+        st.info("Trade value data is unavailable.")
+        return
+
+    figure = px.bar(
+        dataframe,
+        x="display_trade_value",
+        y="asset_label",
+        color="action",
+        orientation="h",
+        custom_data=[
+            "hover_trade_value",
+        ],
+        color_discrete_map={
+            "BUY": POSITIVE_COLOR,
+            "SELL": NEGATIVE_COLOR,
+            "HOLD": SECONDARY_COLOR,
+        },
+    )
+    figure.update_traces(
+        hovertemplate=(
+            "%{y}<br>"
+            "Action: %{legendgroup}<br>"
+            "Trade Amount: $%{customdata[0]:,.2f}<extra></extra>"
+        )
+    )
+    _apply_chart_layout(
+        figure,
+        title="Proposed Trade Value by Asset",
+        x_title="Trade Amount",
+        y_title=None,
+    )
+    figure.update_xaxes(
+        tickprefix="$",
+        separatethousands=True,
+        zeroline=True,
+        zerolinecolor=GRID_COLOR,
+    )
+
+    st.plotly_chart(
+        figure,
+        width="stretch",
+    )
+
+
+def render_cost_tax_impact_chart(
+    trades: list[dict[str, Any]],
+) -> None:
+    """Render non-zero transaction cost and tax impact by asset."""
+
+    import streamlit as st
+    import plotly.express as px
+
+    dataframe = prepare_cost_tax_impact_data(trades)
+
+    if dataframe.empty:
+        st.caption(
+            "Cost and tax impact is not material for the returned trades."
+        )
+        return
+
+    figure = px.bar(
+        dataframe,
+        x="amount",
+        y="asset_label",
+        color="impact_type",
+        barmode="group",
+        orientation="h",
+        color_discrete_map={
+            "Transaction Cost": WARNING_COLOR,
+            "Estimated Tax": NEGATIVE_COLOR,
+        },
+    )
+    figure.update_traces(
+        hovertemplate=(
+            "%{y}<br>"
+            "%{legendgroup}: $%{x:,.2f}<extra></extra>"
+        )
+    )
+    _apply_chart_layout(
+        figure,
+        title="Estimated Cost and Tax Impact",
+        x_title="Amount",
+        y_title=None,
+    )
+    figure.update_xaxes(
+        tickprefix="$",
+        separatethousands=True,
+    )
+
+    st.plotly_chart(
+        figure,
+        width="stretch",
+    )
+
+
 def render_backtest_portfolio_history(
     history: list[dict[str, Any]],
     *,
-    title: str = "Portfolio Value History",
+    title: str = "Portfolio Value Over Time",
 ) -> None:
     """Render returned backtest portfolio value history."""
 
@@ -782,6 +1261,7 @@ def render_backtest_drawdown_history(
     dataframe = prepare_backtest_drawdown_data(history)
 
     if dataframe.empty:
+        st.info("Drawdown history is not available for this backtest.")
         return
 
     figure = px.area(
@@ -800,12 +1280,127 @@ def render_backtest_drawdown_history(
     )
     _apply_chart_layout(
         figure,
-        title="Drawdown History",
+        title="Drawdown Over Time",
         x_title="Period",
         y_title="Drawdown",
     )
     figure.update_yaxes(
         ticksuffix="%",
+        zeroline=True,
+        zerolinecolor=GRID_COLOR,
+    )
+
+    st.plotly_chart(
+        figure,
+        width="stretch",
+        config={
+            "displayModeBar": False,
+        },
+    )
+
+
+def render_backtest_strategy_history(
+    *,
+    buy_and_hold_history: list[dict[str, Any]],
+    threshold_history: list[dict[str, Any]],
+) -> None:
+    """Render comparable portfolio-value history for both strategies."""
+
+    import streamlit as st
+    import plotly.express as px
+
+    dataframe = prepare_backtest_strategy_history_data(
+        buy_and_hold_history=buy_and_hold_history,
+        threshold_history=threshold_history,
+    )
+
+    if dataframe.empty:
+        st.info("No comparable portfolio value history was returned.")
+        return
+
+    figure = px.line(
+        dataframe,
+        x="period_label",
+        y="portfolio_value",
+        color="strategy",
+        markers=True,
+        color_discrete_map={
+            "Buy & Hold": SECONDARY_COLOR,
+            "Threshold Rebalancing": ACCENT_COLOR,
+        },
+    )
+    figure.update_traces(
+        hovertemplate=(
+            "%{legendgroup}<br>"
+            "Period %{x}<br>"
+            "Value $%{y:,.2f}<extra></extra>"
+        )
+    )
+    _apply_chart_layout(
+        figure,
+        title="Portfolio Value Over Time",
+        x_title="Period",
+        y_title="Portfolio Value",
+    )
+    figure.update_yaxes(
+        tickprefix="$",
+        separatethousands=True,
+    )
+
+    st.plotly_chart(
+        figure,
+        width="stretch",
+        config={
+            "displayModeBar": False,
+        },
+    )
+
+
+def render_backtest_strategy_drawdown_history(
+    *,
+    buy_and_hold_drawdown: list[dict[str, Any]],
+    threshold_drawdown: list[dict[str, Any]],
+) -> None:
+    """Render comparable drawdown history for both strategies."""
+
+    import streamlit as st
+    import plotly.express as px
+
+    dataframe = prepare_backtest_strategy_drawdown_data(
+        buy_and_hold_drawdown=buy_and_hold_drawdown,
+        threshold_drawdown=threshold_drawdown,
+    )
+
+    if dataframe.empty:
+        return
+
+    figure = px.area(
+        dataframe,
+        x="period_label",
+        y="drawdown_percent",
+        color="strategy",
+        color_discrete_map={
+            "Buy & Hold": SECONDARY_COLOR,
+            "Threshold Rebalancing": NEGATIVE_COLOR,
+        },
+    )
+    figure.update_traces(
+        hovertemplate=(
+            "%{legendgroup}<br>"
+            "Period %{x}<br>"
+            "Drawdown: %{y:.2f}%<extra></extra>"
+        )
+    )
+    _apply_chart_layout(
+        figure,
+        title="Drawdown Comparison",
+        x_title="Period",
+        y_title="Drawdown",
+    )
+    figure.update_yaxes(
+        ticksuffix="%",
+        zeroline=True,
+        zerolinecolor=GRID_COLOR,
     )
 
     st.plotly_chart(
@@ -833,8 +1428,15 @@ def render_strategy_comparison(
 
     chart_specs = [
         (
-            "percentage",
-            "Returns and Risk",
+            "return",
+            "Return Comparison",
+            "Percent",
+            "%",
+            None,
+        ),
+        (
+            "risk",
+            "Risk Comparison",
             "Percent",
             "%",
             None,
@@ -929,19 +1531,33 @@ def render_allocation_donut_chart(
         names="asset_label",
         values="allocation_percent",
         hole=0.62,
+        custom_data=[
+            "current_value",
+        ] if "current_value" in dataframe.columns else None,
         color_discrete_sequence=CHART_PALETTE,
     )
-    figure.update_traces(
-        textposition="outside",
-        textinfo="none",
-        hovertemplate=(
-            "%{label}<br>"
-            "Allocation %{percent:.2%}<extra></extra>"
-        ),
-    )
+    if "current_value" in dataframe.columns:
+        figure.update_traces(
+            textposition="outside",
+            textinfo="none",
+            hovertemplate=(
+                "%{label}<br>"
+                "Current Allocation: %{percent:.2%}<br>"
+                "Current Value: $%{customdata[0]:,.2f}<extra></extra>"
+            ),
+        )
+    else:
+        figure.update_traces(
+            textposition="outside",
+            textinfo="none",
+            hovertemplate=(
+                "%{label}<br>"
+                "Current Allocation: %{percent:.2%}<extra></extra>"
+            ),
+        )
     _apply_chart_layout(
         figure,
-        title="Current Allocation",
+        title="Current Portfolio Composition",
     )
     figure.update_layout(
         showlegend=True,
@@ -1030,8 +1646,8 @@ def render_current_vs_target_allocation(
         barmode="group",
         orientation="h",
         color_discrete_map={
-            "Current Weight": SECONDARY_COLOR,
-            "Target Weight": ACCENT_COLOR,
+            "Current Allocation": SECONDARY_COLOR,
+            "Target Allocation": ACCENT_COLOR,
         },
     )
     figure.update_traces(

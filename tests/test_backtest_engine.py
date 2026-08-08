@@ -223,6 +223,39 @@ def test_history_contains_expected_columns(
     )
 
 
+def test_buy_and_hold_backtest_returns_drawdown_history(
+    sample_market_returns: pd.DataFrame,
+) -> None:
+    """Backtest results include backend-calculated drawdown history."""
+
+    result = run_buy_and_hold_backtest(
+        initial_weights=[
+            0.60,
+            0.30,
+            0.10,
+        ],
+        market_returns=sample_market_returns,
+        periods_per_year=12,
+    )
+
+    assert len(result.drawdown_history) == len(result.portfolio_history)
+    assert list(result.drawdown_history.columns) == [
+        "period",
+        "drawdown",
+        "date",
+    ]
+    assert result.drawdown_history.iloc[0]["drawdown"] == pytest.approx(
+        0.0
+    )
+    assert (
+        result.drawdown_history["drawdown"].max()
+        <= 0.0
+    )
+    assert result.maximum_drawdown == pytest.approx(
+        result.drawdown_history["drawdown"].min()
+    )
+
+
 def test_invalid_weights_raise_error(
     sample_market_returns: pd.DataFrame,
 ) -> None:
@@ -407,6 +440,50 @@ def test_threshold_rebalancing_history_contains_event_columns(
 
     assert expected_columns.issubset(
         result.portfolio_history.columns,
+    )
+
+
+def test_threshold_rebalancing_backtest_returns_drawdown_history(
+    threshold_market_returns: pd.DataFrame,
+) -> None:
+    """Threshold backtests include aligned drawdown history."""
+
+    result = run_threshold_rebalancing_backtest(
+        initial_weights=[
+            0.35,
+            0.20,
+            0.25,
+            0.10,
+            0.05,
+            0.05,
+        ],
+        target_weights=[
+            0.30,
+            0.20,
+            0.30,
+            0.10,
+            0.05,
+            0.05,
+        ],
+        market_returns=threshold_market_returns,
+        initial_portfolio_value=100_000.0,
+        drift_band=0.01,
+        transaction_cost_rate=0.001,
+        tax_rate=0.20,
+        turnover_budget=0.30,
+        periods_per_year=12,
+    )
+
+    assert len(result.drawdown_history) == len(result.portfolio_history)
+    assert result.drawdown_history.iloc[0]["drawdown"] == pytest.approx(
+        0.0
+    )
+    assert (
+        result.drawdown_history["drawdown"].max()
+        <= 0.0
+    )
+    assert result.maximum_drawdown == pytest.approx(
+        result.drawdown_history["drawdown"].min()
     )
     assert result.portfolio_history["rebalanced"].any()
     assert (

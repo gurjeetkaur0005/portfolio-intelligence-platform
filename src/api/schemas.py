@@ -222,6 +222,7 @@ class BuyAndHoldBacktestResponse(BaseModel):
     strategy_name: str
     metrics: BacktestMetricsResponse
     portfolio_history: list[dict[str, Any]]
+    drawdown_history: list[dict[str, Any]]
     history_record_count: int
 
 
@@ -303,6 +304,7 @@ class ThresholdRebalancingBacktestResponse(BaseModel):
     strategy_name: str
     metrics: BacktestMetricsResponse
     portfolio_history: list[dict[str, Any]]
+    drawdown_history: list[dict[str, Any]]
     history_record_count: int
 
 
@@ -556,6 +558,7 @@ class PortfolioListResponse(BaseModel):
     limit: int
     offset: int
     count: int
+    total: int = Field(ge=0)
 
 
 class PortfolioHoldingResponse(BaseModel):

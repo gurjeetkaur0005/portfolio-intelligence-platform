@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Sequence, TypeAlias
 
 import numpy as np
@@ -9,6 +9,7 @@ from numpy.typing import NDArray
 
 from src.backtesting.performance_metrics import (
     calculate_annualized_return,
+    calculate_drawdown_series,
     calculate_maximum_drawdown,
     calculate_sharpe_ratio,
     calculate_total_return,
@@ -49,6 +50,9 @@ class BacktestResult:
     volatility: float
     sharpe_ratio: float
     maximum_drawdown: float
+    drawdown_history: pd.DataFrame = field(
+        default_factory=pd.DataFrame,
+    )
 
 
 def apply_market_returns(
@@ -222,49 +226,11 @@ def run_buy_and_hold_backtest(
         history_records
     )
 
-    portfolio_values = portfolio_history[
-        "portfolio_value"
-    ].tolist()
-
-    number_of_periods = len(
-        market_returns
-    )
-
-    years = (
-        number_of_periods / periods_per_year
-    )
-
-    total_return = calculate_total_return(
-        portfolio_values
-    )
-
-    annualized_return = calculate_annualized_return(
-        portfolio_values=portfolio_values,
-        years=years,
-    )
-
-    volatility = calculate_volatility(
-        portfolio_values=portfolio_values,
-        periods_per_year=periods_per_year,
-    )
-
-    sharpe_ratio = calculate_sharpe_ratio(
-        annualized_return=annualized_return,
-        annualized_volatility=volatility,
-        risk_free_rate=risk_free_rate,
-    )
-
-    maximum_drawdown = calculate_maximum_drawdown(
-        portfolio_values
-    )
-
-    return BacktestResult(
+    return _build_backtest_result(
         portfolio_history=portfolio_history,
-        total_return=total_return,
-        annualized_return=annualized_return,
-        volatility=volatility,
-        sharpe_ratio=sharpe_ratio,
-        maximum_drawdown=maximum_drawdown,
+        number_of_periods=len(market_returns),
+        periods_per_year=periods_per_year,
+        risk_free_rate=risk_free_rate,
     )
 
 
@@ -886,6 +852,10 @@ def _build_backtest_result(
     maximum_drawdown = calculate_maximum_drawdown(
         portfolio_values
     )
+    drawdown_history = _build_drawdown_history(
+        portfolio_history=portfolio_history,
+        drawdown_series=calculate_drawdown_series(portfolio_values),
+    )
 
     return BacktestResult(
         portfolio_history=portfolio_history,
@@ -894,7 +864,30 @@ def _build_backtest_result(
         volatility=volatility,
         sharpe_ratio=sharpe_ratio,
         maximum_drawdown=maximum_drawdown,
+        drawdown_history=drawdown_history,
     )
+
+
+def _build_drawdown_history(
+    portfolio_history: pd.DataFrame,
+    drawdown_series: Sequence[float],
+) -> pd.DataFrame:
+    """Build a drawdown-history frame aligned to portfolio history."""
+
+    records: list[dict[str, object]] = []
+
+    for index, drawdown in enumerate(drawdown_series):
+        record: dict[str, object] = {
+            "period": index,
+            "drawdown": float(drawdown),
+        }
+
+        if "date" in portfolio_history.columns:
+            record["date"] = portfolio_history.iloc[index]["date"]
+
+        records.append(record)
+
+    return pd.DataFrame(records)
 
 
 def _build_history_record(
