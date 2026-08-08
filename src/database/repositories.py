@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from decimal import Decimal
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 from src.database.models import (
@@ -31,6 +31,10 @@ class DuplicateRecordError(RepositoryError):
 
 class RecordNotFoundError(RepositoryError):
     """Raised when a requested database record does not exist."""
+
+
+class RecordLockUnavailableError(RepositoryError):
+    """Raised when a requested database row lock cannot be acquired."""
 
 
 class PortfolioRepository:
@@ -307,6 +311,80 @@ class PortfolioRepository:
         portfolio = self.get_portfolio_by_business_id(
             portfolio_id
         )
+
+        if portfolio is None:
+            raise RecordNotFoundError(
+                f"Portfolio {portfolio_id!r} was not found."
+            )
+
+        return portfolio
+
+    def require_portfolio_for_rebalance(
+        self,
+        portfolio_id: str,
+    ) -> PortfolioModel:
+        """
+        Return a portfolio while acquiring its rebalance lifecycle lock.
+
+        PostgreSQL honors ``FOR UPDATE NOWAIT`` and rejects a second
+        concurrent request immediately while the first request holds the
+        portfolio row lock. SQLite ignores the locking clause, which keeps
+        unit tests lightweight but does not model concurrent production
+        locking behavior.
+        """
+
+        normalized_portfolio_id = (
+            _validate_non_empty_string(
+                portfolio_id,
+                "portfolio_id",
+            )
+        )
+
+        statement = (
+            select(PortfolioModel)
+            .where(
+                PortfolioModel.portfolio_id
+                == normalized_portfolio_id
+            )
+            .options(
+                selectinload(
+                    PortfolioModel.holdings
+                ),
+                selectinload(
+                    PortfolioModel.rebalance_runs
+                ),
+                selectinload(
+                    PortfolioModel.client
+                ),
+            )
+            .with_for_update(
+                nowait=True,
+                of=PortfolioModel,
+            )
+        )
+
+        try:
+            portfolio = self._session.scalar(statement)
+        except OperationalError as error:
+            self._session.rollback()
+            if _is_lock_unavailable_error(error):
+                logger.warning(
+                    "portfolio_rebalance_lock_unavailable "
+                    "portfolio_id=%s",
+                    normalized_portfolio_id,
+                )
+                raise RecordLockUnavailableError(
+                    "The portfolio is locked by another rebalance."
+                ) from error
+
+            logger.exception(
+                "portfolio_rebalance_lock_database_failure "
+                "portfolio_id=%s",
+                normalized_portfolio_id,
+            )
+            raise RepositoryError(
+                "The database operation failed."
+            ) from error
 
         if portfolio is None:
             raise RecordNotFoundError(
@@ -793,3 +871,25 @@ def _validate_currency(
         )
 
     return normalized_currency
+
+
+def _is_lock_unavailable_error(
+    error: OperationalError,
+) -> bool:
+    """Return whether PostgreSQL rejected a NOWAIT row lock."""
+
+    original_error = error.orig
+
+    sqlstate = getattr(
+        original_error,
+        "sqlstate",
+        None,
+    )
+
+    pgcode = getattr(
+        original_error,
+        "pgcode",
+        None,
+    )
+
+    return sqlstate == "55P03" or pgcode == "55P03"

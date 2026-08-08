@@ -5,6 +5,8 @@ from decimal import Decimal
 
 import pytest
 
+from config.asset_classes import ASSET_CLASSES
+from config.risk_categories import RISK_CATEGORIES
 from src.database.models import (
     ApprovalModel,
     AuditRecordModel,
@@ -171,14 +173,24 @@ def _build_portfolio() -> PortfolioModel:
     )
     portfolio.id = 7
     portfolio.client = client
-    portfolio.holdings.append(
-        PortfolioHoldingModel(
-            asset="cash",
-            current_weight=Decimal("0.0500000000"),
-            current_value=Decimal("50000.00"),
-            cost_basis=Decimal("50000.00"),
+    weights = [
+        Decimal("0.4100000000"),
+        Decimal("0.0900000000"),
+        Decimal("0.3000000000"),
+        Decimal("0.0500000000"),
+        Decimal("0.1000000000"),
+        Decimal("0.0500000000"),
+    ]
+
+    for asset, weight in zip(ASSET_CLASSES, weights):
+        portfolio.holdings.append(
+            PortfolioHoldingModel(
+                asset=asset,
+                current_weight=weight,
+                current_value=Decimal("1000.00"),
+                cost_basis=Decimal("900.00"),
+            )
         )
-    )
 
     return portfolio
 
@@ -297,8 +309,59 @@ def test_get_portfolio_returns_holdings() -> None:
         portfolio_repository.required_portfolio_id
         == "P00001"
     )
-    assert len(result.holdings) == 1
-    assert result.holdings[0].asset == "cash"
+    assert len(result.holdings) == 6
+    assert result.risk_category == "balanced"
+    assert {
+        holding.asset
+        for holding in result.holdings
+    } == set(ASSET_CLASSES)
+
+
+def test_get_portfolio_adds_target_weights_from_config() -> None:
+    portfolio = _build_portfolio()
+    service, _, _ = _build_service(
+        portfolio=portfolio,
+        run=None,
+    )
+
+    result = service.get_portfolio("P00001")
+    targets = RISK_CATEGORIES["balanced"]["target"]
+
+    assert [
+        holding.target_weight
+        for holding in result.holdings
+    ] == [
+        Decimal(str(target)).quantize(Decimal("0.0000000001"))
+        for target in targets
+    ]
+
+
+def test_get_portfolio_adds_drift_with_existing_sign() -> None:
+    portfolio = _build_portfolio()
+    service, _, _ = _build_service(
+        portfolio=portfolio,
+        run=None,
+    )
+
+    result = service.get_portfolio("P00001")
+    domestic_equity = result.holdings[0]
+
+    assert domestic_equity.asset == "domestic_equity"
+    assert domestic_equity.current_weight == Decimal("0.4100000000")
+    assert domestic_equity.target_weight == Decimal("0.4000000000")
+    assert domestic_equity.drift == Decimal("0.0100000000")
+
+
+def test_get_portfolio_unknown_risk_category_fails_safely() -> None:
+    portfolio = _build_portfolio()
+    portfolio.client.risk_category = "unknown"
+    service, _, _ = _build_service(
+        portfolio=portfolio,
+        run=None,
+    )
+
+    with pytest.raises(ValueError, match="Unsupported risk category"):
+        service.get_portfolio("P00001")
 
 
 def test_get_portfolio_preserves_404() -> None:

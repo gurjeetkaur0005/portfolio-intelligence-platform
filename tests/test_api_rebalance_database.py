@@ -12,6 +12,7 @@ from src.api.schemas import DatabaseRebalanceResponse
 from src.database.repositories import RecordNotFoundError
 from src.services.rebalance_application_service import (
     PersistedRebalanceResult,
+    RebalanceAlreadyInProgressError,
     RebalanceExecutionError,
     RebalancePersistenceError,
 )
@@ -218,6 +219,30 @@ def test_database_rebalance_endpoint_handles_persistence_failure(
     assert response.json() == {
         "detail": (
             "The rebalance workflow could not be completed."
+        ),
+    }
+
+
+def test_database_rebalance_endpoint_returns_409_for_duplicate(
+) -> None:
+    service = FakeRebalanceApplicationService(
+        error=RebalanceAlreadyInProgressError(
+            "A rebalance is already in progress for this portfolio."
+        )
+    )
+    _override_service(service)
+
+    response = client.post(
+        "/portfolios/P00001/rebalance",
+        json={
+            "transaction_cost_rate": 0.001,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": (
+            "A rebalance is already in progress for this portfolio."
         ),
     }
 

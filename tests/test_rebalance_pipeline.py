@@ -81,6 +81,32 @@ def test_rebalance_pipeline_produces_final_trade_outputs(
     assert result["audit_id"].str.startswith("AUD").all()
 
 
+def test_rebalance_pipeline_preserves_money_conservation(
+    monkeypatch,
+) -> None:
+    """Pipeline trades remain self-financing before costs and taxes."""
+
+    fake_optimizer_module = types.SimpleNamespace(
+        PortfolioOptimizer=FakePortfolioOptimizer
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "src.optimization.portfolio_optimizer",
+        fake_optimizer_module,
+    )
+
+    result = run_rebalance_pipeline(
+        number_of_clients=1,
+        portfolio_value=1_000_000,
+    )
+
+    assert not result.empty
+
+    for _, portfolio_trades in result.groupby("portfolio_id"):
+        assert abs(portfolio_trades["trade_weight"].sum()) < 1e-9
+        assert abs(portfolio_trades["trade_value"].sum()) < 1e-6
+
+
 def test_input_pipeline_matches_synthetic_pipeline_outputs(
     monkeypatch,
 ) -> None:

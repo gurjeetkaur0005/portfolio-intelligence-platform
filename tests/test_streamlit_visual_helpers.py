@@ -1,17 +1,26 @@
 from __future__ import annotations
 
+import importlib
+import sys
+from types import SimpleNamespace
+
 from streamlit_app.components.charts import (
     _format_asset_label,
     prepare_allocation_data,
     prepare_backtest_drawdown_data,
     prepare_backtest_portfolio_history_data,
+    prepare_current_vs_target_allocation_data,
     prepare_holding_value_data,
     prepare_portfolio_value_data,
     prepare_rebalance_allocation_comparison_data,
     prepare_strategy_comparison_chart_data,
+    prepare_target_allocation_data,
 )
 from streamlit_app.components.status import (
     approval_status_label,
+    drift_label,
+    drift_status_label,
+    drift_status_tone,
     payload_status_label,
     status_label,
     status_tone,
@@ -23,6 +32,16 @@ from streamlit_app.components.tables import (
     prepare_strategy_comparison_table_data,
 )
 from streamlit_app.services.display import display_label
+
+
+sys.modules.setdefault(
+    "streamlit",
+    SimpleNamespace(session_state={}),
+)
+
+REBALANCING_PAGE = importlib.import_module(
+    "streamlit_app.pages.3_Rebalancing"
+)
 
 
 def test_asset_label_formatting() -> None:
@@ -42,8 +61,12 @@ def test_status_label_and_tone_mapping() -> None:
 
     assert status_label("not_configured") == "Not Configured"
     assert status_tone("healthy") == "positive"
+    assert status_tone("BUY") == "positive"
     assert status_tone("pending") == "warning"
+    assert status_tone("Not Configured") == "warning"
+    assert status_tone("SELL") == "negative"
     assert status_tone("failed") == "negative"
+    assert status_tone("HOLD") == "neutral"
     assert status_tone("unknown") == "neutral"
 
 
@@ -51,6 +74,8 @@ def test_prepare_allocation_data_handles_empty_input() -> None:
     """Allocation preparation safely handles empty data."""
 
     assert prepare_allocation_data([]).empty
+    assert prepare_target_allocation_data([]).empty
+    assert prepare_current_vs_target_allocation_data([]).empty
 
 
 def test_prepare_holding_value_data_sorts_descending() -> None:
@@ -102,6 +127,8 @@ def test_prepare_holdings_table_data_formats_assets_and_weights() -> None:
             {
                 "asset": "fixed_income",
                 "current_weight": 0.25,
+                "target_weight": 0.30,
+                "drift": -0.05,
                 "current_value": 250.0,
                 "cost_basis": 200.0,
             }
@@ -110,6 +137,72 @@ def test_prepare_holdings_table_data_formats_assets_and_weights() -> None:
 
     assert result.loc[0, "asset"] == "Fixed Income"
     assert result.loc[0, "current_weight"] == 25.0
+    assert result.loc[0, "target_weight"] == 30.0
+    assert result.loc[0, "drift"] == "-5.00%"
+
+
+def test_prepare_target_allocation_data_uses_api_target_weight() -> None:
+    """Target allocation prep consumes backend target weights."""
+
+    result = prepare_target_allocation_data(
+        [
+            {
+                "asset": "domestic_equity",
+                "current_weight": 0.45,
+                "target_weight": 0.40,
+            }
+        ]
+    )
+
+    assert list(result["asset_label"]) == ["Domestic Equity"]
+    assert list(result["allocation_percent"]) == [40.0]
+
+
+def test_prepare_current_vs_target_allocation_data() -> None:
+    """Current vs target chart data uses returned allocation fields."""
+
+    result = prepare_current_vs_target_allocation_data(
+        [
+            {
+                "asset": "domestic_equity",
+                "current_weight": 0.45,
+                "target_weight": 0.40,
+            }
+        ]
+    )
+
+    assert list(result["asset_label"]) == [
+        "Domestic Equity",
+        "Domestic Equity",
+    ]
+    assert set(result["allocation_type"]) == {
+        "Current Weight",
+        "Target Weight",
+    }
+    assert set(result["weight_percent"]) == {
+        45.0,
+        40.0,
+    }
+
+
+def test_drift_formatting_uses_signed_percentages() -> None:
+    """Drift helpers format backend drift values for display."""
+
+    assert drift_label(0.012) == "+1.20%"
+    assert drift_label(-0.008) == "-0.80%"
+    assert drift_label(0) == "0.00%"
+    assert drift_label("bad") == "Not available"
+
+
+def test_drift_status_helpers_color_by_sign_only() -> None:
+    """Drift status helpers classify by sign without thresholds."""
+
+    assert drift_status_label(0.012) == "Positive Drift"
+    assert drift_status_tone(0.012) == "positive"
+    assert drift_status_label(-0.008) == "Negative Drift"
+    assert drift_status_tone(-0.008) == "negative"
+    assert drift_status_label(0) == "Near Target"
+    assert drift_status_tone(0) == "neutral"
 
 
 def test_prepare_rebalance_allocation_comparison_data() -> None:
@@ -227,6 +320,25 @@ def test_payload_status_label_preserves_not_configured() -> None:
         == "Not Configured"
     )
     assert payload_status_label(None) == "Unavailable"
+
+
+def test_rebalance_submission_state_can_reset(
+    monkeypatch,
+) -> None:
+    """Rebalance page submission state is not permanently disabled."""
+
+    fake_streamlit = SimpleNamespace(session_state={})
+    monkeypatch.setitem(
+        sys.modules,
+        "streamlit",
+        fake_streamlit,
+    )
+
+    REBALANCING_PAGE._set_rebalance_request_active(True)
+    assert REBALANCING_PAGE._rebalance_request_active() is True
+
+    REBALANCING_PAGE._set_rebalance_request_active(False)
+    assert REBALANCING_PAGE._rebalance_request_active() is False
 
 
 def test_prepare_backtest_portfolio_history_data() -> None:

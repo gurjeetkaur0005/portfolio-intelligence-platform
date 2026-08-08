@@ -237,6 +237,46 @@ def test_repository_lists_portfolios_with_pagination(
     assert portfolios[0].portfolio_id == "P00002"
 
 
+def test_repository_requires_portfolio_for_rebalance(
+    database_session: Session,
+) -> None:
+    repository = PortfolioRepository(
+        database_session
+    )
+    client = repository.create_client(
+        client_id="C00001",
+        risk_category="balanced",
+    )
+    portfolio = repository.create_portfolio(
+        client=client,
+        portfolio_id="P00001",
+        portfolio_value=Decimal("1000000.00"),
+    )
+
+    locked_portfolio = repository.require_portfolio_for_rebalance(
+        "P00001"
+    )
+
+    assert locked_portfolio.id == portfolio.id
+    assert locked_portfolio.client.client_id == "C00001"
+
+
+def test_repository_rebalance_lock_raises_when_missing(
+    database_session: Session,
+) -> None:
+    repository = PortfolioRepository(
+        database_session
+    )
+
+    with pytest.raises(
+        RecordNotFoundError,
+        match="was not found",
+    ):
+        repository.require_portfolio_for_rebalance(
+            "UNKNOWN"
+        )
+
+
 def test_repository_replaces_holdings(
     database_session: Session,
 ) -> None:

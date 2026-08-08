@@ -11,10 +11,12 @@ from src.database.models import (
     RebalanceRunModel,
 )
 from src.database.repositories import (
+    RecordLockUnavailableError,
     RecordNotFoundError,
 )
 from src.services.rebalance_application_service import (
     PersistedRebalanceResult,
+    RebalanceAlreadyInProgressError,
     RebalanceApplicationService,
     RebalanceExecutionError,
     RebalancePersistenceError,
@@ -30,8 +32,11 @@ class FakePortfolioRepository:
     def __init__(
         self,
         portfolio: PortfolioModel | None,
+        *,
+        lock_unavailable: bool = False,
     ) -> None:
         self.portfolio = portfolio
+        self.lock_unavailable = lock_unavailable
         self.received_portfolio_id: str | None = None
 
     def require_portfolio_by_business_id(
@@ -46,6 +51,21 @@ class FakePortfolioRepository:
             )
 
         return self.portfolio
+
+    def require_portfolio_for_rebalance(
+        self,
+        portfolio_id: str,
+    ) -> PortfolioModel:
+        self.received_portfolio_id = portfolio_id
+
+        if self.lock_unavailable:
+            raise RecordLockUnavailableError(
+                "The portfolio is locked by another rebalance."
+            )
+
+        return self.require_portfolio_by_business_id(
+            portfolio_id
+        )
 
 
 class FakePortfolioInputAdapter:
@@ -97,6 +117,7 @@ class FakePortfolioEngine:
         self.received_transaction_cost_rate: (
             float | None
         ) = None
+        self.call_count = 0
 
     def __call__(
         self,
@@ -106,6 +127,7 @@ class FakePortfolioEngine:
         portfolio_value: float = 1_000_000.0,
         transaction_cost_rate: float = 0.002,
     ) -> pd.DataFrame:
+        self.call_count += 1
         self.received_client_profiles = (
             client_profiles.copy(deep=True)
         )
@@ -150,6 +172,7 @@ class FakePersistenceService:
         self.received_completed_at: datetime | None = None
         self.received_run_id: str | None = None
         self.received_status: str | None = None
+        self.call_count = 0
 
     def persist_rebalance_result(
         self,
@@ -163,6 +186,8 @@ class FakePersistenceService:
         run_id: str | None = None,
         status: str = "SUCCESS",
     ) -> RebalanceRunModel:
+        self.call_count += 1
+
         if self.error is not None:
             raise self.error
 
@@ -198,6 +223,17 @@ def _build_portfolio() -> PortfolioModel:
     return portfolio
 
 
+def _build_portfolio_with_id(
+    portfolio_id: str,
+) -> PortfolioModel:
+    """Build a persisted portfolio with a custom business ID."""
+
+    portfolio = _build_portfolio()
+    portfolio.portfolio_id = portfolio_id
+
+    return portfolio
+
+
 def _build_trade_results() -> pd.DataFrame:
     """Build deterministic trade results."""
 
@@ -217,6 +253,17 @@ def _build_trade_results() -> pd.DataFrame:
             },
         ]
     )
+
+
+def _build_trade_results_for_portfolio(
+    portfolio_id: str,
+) -> pd.DataFrame:
+    """Build trade results for one portfolio ID."""
+
+    trade_results = _build_trade_results()
+    trade_results["portfolio_id"] = portfolio_id
+
+    return trade_results
 
 
 def _build_deterministic_input() -> DeterministicPortfolioInput:
@@ -334,6 +381,106 @@ def test_execute_rebalance_returns_persisted_result() -> None:
     assert result.workflow_status == "success"
     assert result.trade_count == 2
     assert result.database_run_id == 25
+
+
+def test_duplicate_rebalance_is_rejected_before_engine() -> None:
+    portfolio_engine = FakePortfolioEngine()
+    persistence_service = FakePersistenceService(
+        _build_persisted_run()
+    )
+    service = _build_service(
+        portfolio_repository=FakePortfolioRepository(
+            _build_portfolio(),
+            lock_unavailable=True,
+        ),
+        portfolio_engine=portfolio_engine,
+        persistence_service=persistence_service,
+    )
+
+    with pytest.raises(
+        RebalanceAlreadyInProgressError,
+        match="already in progress",
+    ):
+        service.execute_rebalance(
+            portfolio_id="P-STORED-001",
+            transaction_cost_rate=Decimal("0.002"),
+        )
+
+    assert portfolio_engine.call_count == 0
+    assert persistence_service.call_count == 0
+
+
+def test_successful_run_does_not_leave_service_locked() -> None:
+    persistence_service = FakePersistenceService(
+        _build_persisted_run()
+    )
+    service = _build_service(
+        persistence_service=persistence_service,
+    )
+
+    service.execute_rebalance(
+        portfolio_id="P-STORED-001",
+        transaction_cost_rate=Decimal("0.002"),
+    )
+    service.execute_rebalance(
+        portfolio_id="P-STORED-001",
+        transaction_cost_rate=Decimal("0.002"),
+    )
+
+    assert persistence_service.call_count == 2
+
+
+def test_failed_run_does_not_leave_service_locked() -> None:
+    portfolio_engine = FakePortfolioEngine(
+        error=RuntimeError("Optimizer failed.")
+    )
+    service = _build_service(
+        portfolio_engine=portfolio_engine,
+    )
+
+    with pytest.raises(RebalanceExecutionError):
+        service.execute_rebalance(
+            portfolio_id="P-STORED-001",
+            transaction_cost_rate=Decimal("0.002"),
+        )
+
+    recovery_persistence_service = FakePersistenceService(
+        _build_persisted_run()
+    )
+    recovery_service = _build_service(
+        persistence_service=recovery_persistence_service,
+    )
+
+    recovery_service.execute_rebalance(
+        portfolio_id="P-STORED-001",
+        transaction_cost_rate=Decimal("0.002"),
+    )
+
+    assert recovery_persistence_service.call_count == 1
+
+
+def test_lock_contention_is_scoped_to_requested_portfolio() -> None:
+    second_portfolio_id = "P-STORED-002"
+    persistence_service = FakePersistenceService(
+        _build_persisted_run()
+    )
+    service = _build_service(
+        portfolio_repository=FakePortfolioRepository(
+            _build_portfolio_with_id(second_portfolio_id),
+        ),
+        portfolio_engine=FakePortfolioEngine(
+            _build_trade_results_for_portfolio(second_portfolio_id)
+        ),
+        persistence_service=persistence_service,
+    )
+
+    result = service.execute_rebalance(
+        portfolio_id=second_portfolio_id,
+        transaction_cost_rate=Decimal("0.002"),
+    )
+
+    assert result.portfolio_id == second_portfolio_id
+    assert persistence_service.call_count == 1
 
 
 def test_service_loads_requested_portfolio() -> None:

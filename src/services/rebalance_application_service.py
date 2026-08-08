@@ -13,6 +13,7 @@ from src.database.models import (
     RebalanceRunModel,
     utc_now,
 )
+from src.database.repositories import RecordLockUnavailableError
 from src.pipeline.rebalance_pipeline import (
     run_rebalance_pipeline_for_inputs,
 )
@@ -29,11 +30,11 @@ logger = get_logger(__name__)
 class PortfolioRepositoryProtocol(Protocol):
     """Describe the portfolio repository operation used by the service."""
 
-    def require_portfolio_by_business_id(
+    def require_portfolio_for_rebalance(
         self,
         portfolio_id: str,
     ) -> PortfolioModel:
-        """Return a persisted portfolio or raise RecordNotFoundError."""
+        """Return a persisted portfolio with its rebalance lock."""
         ...
 
 
@@ -96,6 +97,12 @@ class RebalancePersistenceError(
     RebalanceApplicationServiceError
 ):
     """Raised when a completed workflow cannot be persisted."""
+
+
+class RebalanceAlreadyInProgressError(
+    RebalanceApplicationServiceError
+):
+    """Raised when a portfolio already has an active rebalance."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +182,8 @@ class RebalanceApplicationService:
                 If the deterministic workflow fails.
             RebalancePersistenceError:
                 If persistence fails after successful execution.
+            RebalanceAlreadyInProgressError:
+                If another request is already rebalancing this portfolio.
         """
 
         normalized_portfolio_id = _validate_non_empty_string(
@@ -194,12 +203,24 @@ class RebalanceApplicationService:
             else _generate_run_id()
         )
 
-        portfolio = (
-            self._portfolio_repository
-            .require_portfolio_by_business_id(
-                normalized_portfolio_id
+        try:
+            portfolio = (
+                self._portfolio_repository
+                .require_portfolio_for_rebalance(
+                    normalized_portfolio_id
+                )
             )
-        )
+        except RecordLockUnavailableError as error:
+            logger.info(
+                "rebalance_duplicate_rejected portfolio_id=%s "
+                "run_id=%s",
+                normalized_portfolio_id,
+                normalized_run_id,
+            )
+            raise RebalanceAlreadyInProgressError(
+                "A rebalance is already in progress for this portfolio."
+            ) from error
+
         normalized_portfolio_value = _validate_positive_decimal(
             portfolio.portfolio_value,
             "portfolio.portfolio_value",

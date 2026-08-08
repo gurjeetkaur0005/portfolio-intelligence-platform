@@ -3,6 +3,7 @@ from __future__ import annotations
 from streamlit_app.components.cards import (
     render_key_value,
     render_kpi_card,
+    render_page_header,
 )
 from streamlit_app.components.charts import (
     _format_asset_label,
@@ -149,6 +150,24 @@ def _approval_status(
         required=normalized_required,
         status=normalized_status,
     )
+
+
+def _rebalance_request_active() -> bool:
+    """Return whether the current Streamlit session is submitting."""
+
+    import streamlit as st
+
+    return bool(st.session_state.get("rebalance_in_progress", False))
+
+
+def _set_rebalance_request_active(
+    active: bool,
+) -> None:
+    """Store the current rebalance submission state."""
+
+    import streamlit as st
+
+    st.session_state["rebalance_in_progress"] = active
 
 
 def _render_command_result(
@@ -300,7 +319,7 @@ def _render_trigger_details(
 
     import streamlit as st
 
-    st.markdown("##### Trigger Information")
+    st.markdown("##### Trigger Context")
 
     left, right = st.columns(2)
 
@@ -440,8 +459,8 @@ def _render_trade_explanations(
         with st.expander(
             f"{_format_asset_label(asset)} - {action_label}"
         ):
+            st.markdown("##### Recommendation")
             render_status_badge(action_label)
-            st.divider()
 
             _render_trigger_details(trade)
             st.divider()
@@ -475,8 +494,9 @@ def _render_trades(
     with st.container(border=True):
         render_rebalance_allocation_comparison(trade_page.items)
 
-    st.subheader("Trade Recommendations")
-    render_rebalance_trade_table(trade_page.items)
+    st.subheader("Recommended Trades")
+    with st.container(border=True):
+        render_rebalance_trade_table(trade_page.items)
 
     st.caption(
         f"Showing {trade_page.count} trade(s), "
@@ -563,14 +583,12 @@ def main() -> None:
 
     render_sidebar(settings)
 
-    st.title("Rebalancing")
-    st.markdown(
-        (
-            "<div class='pm-page-caption'>"
-            "Run the deterministic rebalance workflow for a stored portfolio."
-            "</div>"
+    render_page_header(
+        title="Rebalancing",
+        description=(
+            "Review a portfolio and generate its latest rebalance "
+            "recommendations."
         ),
-        unsafe_allow_html=True,
     )
 
     client = _build_client()
@@ -590,12 +608,12 @@ def main() -> None:
         st.info("No stored portfolios are available for rebalancing.")
         return
 
-    st.subheader("Rebalance Configuration")
+    st.subheader("Rebalance Setup")
 
     with st.container(border=True):
         st.caption(
-            "Portfolio value and holdings are loaded from PostgreSQL. "
-            "Streamlit only submits the workflow request."
+            "Portfolio value and holdings are loaded from the platform API. "
+            "The frontend only submits the recommendation request."
         )
 
         selected_portfolio = st.selectbox(
@@ -614,13 +632,15 @@ def main() -> None:
         )
 
         run_button = st.button(
-            label="Run Rebalance",
+            label="Generate Recommendations",
             type="primary",
+            disabled=_rebalance_request_active(),
         )
 
     if run_button:
+        _set_rebalance_request_active(True)
         try:
-            with st.spinner("Running deterministic rebalance..."):
+            with st.spinner("Generating recommendations..."):
                 result = client.run_portfolio_rebalance(
                     portfolio_id=selected_portfolio,
                     transaction_cost_rate=float(transaction_cost_rate),
@@ -628,6 +648,8 @@ def main() -> None:
         except (ApiClientError, ValueError) as exc:
             st.error(f"Rebalance failed: {exc}")
             return
+        finally:
+            _set_rebalance_request_active(False)
 
         run_id_value = result.get("run_id")
 

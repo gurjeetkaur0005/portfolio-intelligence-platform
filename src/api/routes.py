@@ -79,6 +79,7 @@ from src.llm.language_model import LanguageModelProtocol
 from src.llm.prompt_builder import PromptBuilder
 from src.services.rebalance_application_service import (
     RebalanceApplicationService,
+    RebalanceAlreadyInProgressError,
     RebalanceExecutionError,
     RebalancePersistenceError,
 )
@@ -356,6 +357,8 @@ def _portfolio_detail_response(
         PortfolioHoldingResponse(
             asset=holding.asset,
             current_weight=float(holding.current_weight),
+            target_weight=float(holding.target_weight),
+            drift=float(holding.drift),
             current_value=float(holding.current_value),
             cost_basis=float(holding.cost_basis),
         )
@@ -365,6 +368,7 @@ def _portfolio_detail_response(
     return PortfolioDetailResponse(
         portfolio_id=portfolio.portfolio_id,
         client_id=portfolio.client_id,
+        risk_category=portfolio.risk_category,
         portfolio_value=float(portfolio.portfolio_value),
         currency=portfolio.currency,
         holdings=holdings,
@@ -1153,6 +1157,13 @@ def rebalance_stored_portfolio(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The rebalance workflow could not be completed.",
+        ) from error
+    except RebalanceAlreadyInProgressError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "A rebalance is already in progress for this portfolio."
+            ),
         ) from error
 
     return DatabaseRebalanceResponse(

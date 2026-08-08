@@ -47,6 +47,12 @@ class ApiPayloadError(ApiClientError):
     """Raised when the backend returns an unexpected payload."""
 
 
+REBALANCE_CONFLICT_MESSAGE = (
+    "A rebalance is already running for this portfolio. "
+    "Please wait for it to finish."
+)
+
+
 @dataclass(frozen=True, slots=True)
 class PaginatedResponse:
     """Represent the backend pagination contract."""
@@ -505,6 +511,12 @@ class FastApiClient:
             return
 
         message = "The FastAPI service returned an error."
+
+        if response.status_code == 409:
+            raise ApiResponseError(
+                status_code=response.status_code,
+                message=REBALANCE_CONFLICT_MESSAGE,
+            )
 
         try:
             payload = response.json()

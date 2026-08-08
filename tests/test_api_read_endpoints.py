@@ -11,7 +11,11 @@ from src.api.dependencies import (
     get_portfolio_read_application_service,
 )
 from src.api.main import app
-from src.api.schemas import PortfolioSummaryResponse
+from src.api.schemas import (
+    PortfolioDetailResponse,
+    PortfolioHoldingResponse,
+    PortfolioSummaryResponse,
+)
 from src.database.repositories import RecordNotFoundError
 from src.services.portfolio_read_application_service import (
     PaginatedResult,
@@ -102,12 +106,15 @@ class FakePortfolioReadService:
         return PortfolioDetail(
             portfolio_id=portfolio_id,
             client_id="C00001",
+            risk_category="balanced",
             portfolio_value=Decimal("1000000.00"),
             currency="USD",
             holdings=(
                 PortfolioHolding(
                     asset="cash",
                     current_weight=Decimal("0.0500000000"),
+                    target_weight=Decimal("0.0500000000"),
+                    drift=Decimal("0E-10"),
                     current_value=Decimal("50000.00"),
                     cost_basis=Decimal("50000.00"),
                 ),
@@ -367,10 +374,13 @@ def test_get_portfolio_returns_success() -> None:
     response = client.get("/portfolios/P00001")
 
     assert response.status_code == 200
+    assert response.json()["risk_category"] == "balanced"
     assert response.json()["holdings"] == [
         {
             "asset": "cash",
             "current_weight": 0.05,
+            "target_weight": 0.05,
+            "drift": 0.0,
             "current_value": 50000.0,
             "cost_basis": 50000.0,
         }
@@ -587,6 +597,29 @@ def test_read_response_schema_rejects_extra_fields() -> None:
             client_id="C00001",
             portfolio_value=1000000.0,
             currency="USD",
+            extra_field="invalid",  # type: ignore[call-arg]
+        )
+
+    with pytest.raises(ValidationError):
+        PortfolioHoldingResponse(
+            asset="cash",
+            current_weight=0.05,
+            target_weight=0.05,
+            drift=0.0,
+            current_value=50000.0,
+            cost_basis=50000.0,
+            extra_field="invalid",  # type: ignore[call-arg]
+        )
+
+    with pytest.raises(ValidationError):
+        PortfolioDetailResponse(
+            portfolio_id="P00001",
+            client_id="C00001",
+            risk_category="balanced",
+            portfolio_value=1000000.0,
+            currency="USD",
+            holdings=[],
+            holding_count=0,
             extra_field="invalid",  # type: ignore[call-arg]
         )
 
