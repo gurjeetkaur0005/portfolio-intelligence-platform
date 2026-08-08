@@ -11,6 +11,13 @@ from streamlit_app.components.charts import (
 )
 from streamlit_app.components.metrics import format_currency
 from streamlit_app.components.navigation import render_sidebar
+from streamlit_app.components.pagination import (
+    DEFAULT_PAGE_LIMIT,
+    current_page_index,
+    page_offset,
+    render_pagination_controls,
+    reset_page_on_selection_change,
+)
 from streamlit_app.components.status import (
     approval_status_label,
     render_status_badge,
@@ -496,13 +503,15 @@ def _render_trades(
 
     st.subheader("Recommended Trades")
     with st.container(border=True):
-        render_rebalance_trade_table(trade_page.items)
+        render_pagination_controls(
+            page=trade_page,
+            page_key="trade_page",
+        )
+        if not trade_page.items:
+            st.info("No trades are available for this run.")
+            return
 
-    st.caption(
-        f"Showing {trade_page.count} trade(s), "
-        f"limit={trade_page.limit}, "
-        f"offset={trade_page.offset}."
-    )
+        render_rebalance_trade_table(trade_page.items)
 
     _render_trade_explanations(trade_page)
 
@@ -515,13 +524,16 @@ def _render_audit(
     import streamlit as st
 
     st.subheader("Audit Trail")
-    render_rebalance_audit_table(audit_page.items)
+    with st.container(border=True):
+        render_pagination_controls(
+            page=audit_page,
+            page_key="audit_page",
+        )
+        if not audit_page.items:
+            st.info("No audit records are available for this run.")
+            return
 
-    st.caption(
-        f"Showing {audit_page.count} audit record(s), "
-        f"limit={audit_page.limit}, "
-        f"offset={audit_page.offset}."
-    )
+        render_rebalance_audit_table(audit_page.items)
 
 
 def _load_run_results(
@@ -545,10 +557,11 @@ def _load_run_results(
     _render_rebalance_summary(summary)
 
     try:
+        trade_page_index = current_page_index("trade_page")
         trade_page = client.list_rebalance_trades(
             run_id=run_id,
-            limit=20,
-            offset=0,
+            limit=DEFAULT_PAGE_LIMIT,
+            offset=page_offset(page_index=trade_page_index),
         )
     except ApiClientError as exc:
         st.warning(f"Could not load rebalance trades: {exc}")
@@ -556,10 +569,11 @@ def _load_run_results(
         _render_trades(trade_page)
 
     try:
+        audit_page_index = current_page_index("audit_page")
         audit_page = client.list_rebalance_audit(
             run_id=run_id,
-            limit=20,
-            offset=0,
+            limit=DEFAULT_PAGE_LIMIT,
+            offset=page_offset(page_index=audit_page_index),
         )
     except ApiClientError as exc:
         st.warning(f"Could not load the audit trail: {exc}")
@@ -661,11 +675,27 @@ def main() -> None:
             return
 
         st.session_state["rebalance_run_id"] = run_id_value
+        reset_page_on_selection_change(
+            selection_key="rebalancing_selected_run",
+            selected_value=run_id_value,
+            page_keys=(
+                "trade_page",
+                "audit_page",
+            ),
+        )
         _render_command_result(result)
 
     stored_run_id = st.session_state.get("rebalance_run_id")
 
     if isinstance(stored_run_id, str) and stored_run_id.strip():
+        reset_page_on_selection_change(
+            selection_key="rebalancing_selected_run",
+            selected_value=stored_run_id,
+            page_keys=(
+                "trade_page",
+                "audit_page",
+            ),
+        )
         st.divider()
         _load_run_results(
             client=client,

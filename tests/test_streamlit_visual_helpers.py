@@ -16,6 +16,11 @@ from streamlit_app.components.charts import (
     prepare_strategy_comparison_chart_data,
     prepare_target_allocation_data,
 )
+from streamlit_app.components.pagination import (
+    page_offset,
+    page_summary,
+    reset_page_on_selection_change,
+)
 from streamlit_app.components.status import (
     approval_status_label,
     drift_label,
@@ -31,6 +36,7 @@ from streamlit_app.components.tables import (
     prepare_rebalance_trade_table_data,
     prepare_strategy_comparison_table_data,
 )
+from streamlit_app.services.api_client import PaginatedResponse
 from streamlit_app.services.display import display_label
 
 
@@ -339,6 +345,168 @@ def test_rebalance_submission_state_can_reset(
 
     REBALANCING_PAGE._set_rebalance_request_active(False)
     assert REBALANCING_PAGE._rebalance_request_active() is False
+
+
+def test_pagination_summary_for_page_one() -> None:
+    """Pagination displays the first backend page range."""
+
+    page = PaginatedResponse(
+        items=[],
+        limit=20,
+        offset=0,
+        count=20,
+    )
+
+    summary = page_summary(
+        page=page,
+        page_index=0,
+    )
+
+    assert summary.label == "Showing 1-20"
+    assert summary.page_number == 1
+    assert summary.previous_disabled is True
+    assert summary.next_disabled is False
+    assert page_offset(page_index=0) == 0
+
+
+def test_pagination_summary_for_page_two() -> None:
+    """Pagination displays the second backend page range."""
+
+    page = PaginatedResponse(
+        items=[],
+        limit=20,
+        offset=20,
+        count=20,
+    )
+
+    summary = page_summary(
+        page=page,
+        page_index=1,
+    )
+
+    assert summary.label == "Showing 21-40"
+    assert summary.page_number == 2
+    assert summary.previous_disabled is False
+    assert summary.next_disabled is False
+    assert page_offset(page_index=1) == 20
+
+
+def test_pagination_summary_for_last_page() -> None:
+    """A short page is treated as the last known page."""
+
+    page = PaginatedResponse(
+        items=[],
+        limit=20,
+        offset=40,
+        count=8,
+    )
+
+    summary = page_summary(
+        page=page,
+        page_index=2,
+    )
+
+    assert summary.label == "Showing 41-48"
+    assert summary.page_number == 3
+    assert summary.previous_disabled is False
+    assert summary.next_disabled is True
+
+
+def test_pagination_summary_for_single_page() -> None:
+    """A single short page disables both navigation directions."""
+
+    page = PaginatedResponse(
+        items=[],
+        limit=20,
+        offset=0,
+        count=3,
+    )
+
+    summary = page_summary(
+        page=page,
+        page_index=0,
+    )
+
+    assert summary.label == "Showing 1-3"
+    assert summary.previous_disabled is True
+    assert summary.next_disabled is True
+
+
+def test_pagination_summary_for_empty_dataset() -> None:
+    """Empty pages display a friendly zero-record range."""
+
+    page = PaginatedResponse(
+        items=[],
+        limit=20,
+        offset=0,
+        count=0,
+    )
+
+    summary = page_summary(
+        page=page,
+        page_index=0,
+    )
+
+    assert summary.label == "Showing 0 records"
+    assert summary.previous_disabled is True
+    assert summary.next_disabled is True
+
+
+def test_portfolio_change_resets_history_page(
+    monkeypatch,
+) -> None:
+    """Changing portfolio selection resets rebalance history paging."""
+
+    fake_streamlit = SimpleNamespace(
+        session_state={
+            "history_selected_portfolio": "P1",
+            "history_page": 2,
+        }
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "streamlit",
+        fake_streamlit,
+    )
+
+    reset_page_on_selection_change(
+        selection_key="history_selected_portfolio",
+        selected_value="P2",
+        page_keys=("history_page",),
+    )
+
+    assert fake_streamlit.session_state["history_page"] == 0
+
+
+def test_run_change_resets_trade_and_audit_pages(
+    monkeypatch,
+) -> None:
+    """Changing run selection resets trade and audit paging."""
+
+    fake_streamlit = SimpleNamespace(
+        session_state={
+            "history_selected_run": "RUN1",
+            "trade_page": 3,
+            "audit_page": 4,
+        }
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "streamlit",
+        fake_streamlit,
+    )
+
+    reset_page_on_selection_change(
+        selection_key="history_selected_run",
+        selected_value="RUN2",
+        page_keys=(
+            "trade_page",
+            "audit_page",
+        ),
+    )
+
+    assert fake_streamlit.session_state["trade_page"] == 0
+    assert fake_streamlit.session_state["audit_page"] == 0
 
 
 def test_prepare_backtest_portfolio_history_data() -> None:

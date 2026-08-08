@@ -5,12 +5,20 @@ import streamlit as st
 from streamlit_app.components.cards import (
     render_key_value,
     render_kpi_card,
+    render_page_header,
 )
 from streamlit_app.components.metrics import (
     format_currency,
     format_percentage,
 )
 from streamlit_app.components.navigation import render_sidebar
+from streamlit_app.components.pagination import (
+    DEFAULT_PAGE_LIMIT,
+    current_page_index,
+    page_offset,
+    render_pagination_controls,
+    reset_page_on_selection_change,
+)
 from streamlit_app.components.status import status_label
 from streamlit_app.components.tables import (
     render_rebalance_audit_table,
@@ -102,12 +110,15 @@ def _render_run_history(
     st.subheader("Historical Runs")
 
     with st.container(border=True):
-        render_rebalance_run_table(rebalance_page.items)
-        st.caption(
-            f"Showing {rebalance_page.count} run(s), "
-            f"limit={rebalance_page.limit}, "
-            f"offset={rebalance_page.offset}."
+        render_pagination_controls(
+            page=rebalance_page,
+            page_key="history_page",
         )
+        if not rebalance_page.items:
+            st.info("No rebalance history is available.")
+            return
+
+        render_rebalance_run_table(rebalance_page.items)
 
 
 def _render_run_summary(
@@ -207,12 +218,16 @@ def _render_trades(
     """Render historical rebalance trades."""
 
     st.subheader("Trades")
-    render_rebalance_trade_table(trade_page.items)
-    st.caption(
-        f"Showing {trade_page.count} trade(s), "
-        f"limit={trade_page.limit}, "
-        f"offset={trade_page.offset}."
-    )
+    with st.container(border=True):
+        render_pagination_controls(
+            page=trade_page,
+            page_key="trade_page",
+        )
+        if not trade_page.items:
+            st.info("No trades are available for this run.")
+            return
+
+        render_rebalance_trade_table(trade_page.items)
 
 
 def _render_audit(
@@ -221,12 +236,16 @@ def _render_audit(
     """Render audit records for one historical run."""
 
     st.subheader("Audit Trail")
-    render_rebalance_audit_table(audit_page.items)
-    st.caption(
-        f"Showing {audit_page.count} audit record(s), "
-        f"limit={audit_page.limit}, "
-        f"offset={audit_page.offset}."
-    )
+    with st.container(border=True):
+        render_pagination_controls(
+            page=audit_page,
+            page_key="audit_page",
+        )
+        if not audit_page.items:
+            st.info("No audit records are available for this run.")
+            return
+
+        render_rebalance_audit_table(audit_page.items)
 
 
 def main() -> None:
@@ -243,14 +262,12 @@ def main() -> None:
 
     render_sidebar(settings)
 
-    st.title("Rebalance History")
-    st.markdown(
-        (
-            "<div class='pm-page-caption'>"
-            "Inspect previous database-backed rebalance runs."
-            "</div>"
+    render_page_header(
+        title="History",
+        description=(
+            "Review previous rebalance runs, trades, approvals, and "
+            "audit records."
         ),
-        unsafe_allow_html=True,
     )
 
     client = _build_client()
@@ -272,19 +289,30 @@ def main() -> None:
 
     with st.container(border=True):
         st.caption(
-            "Choose a stored portfolio to inspect persisted "
-            "rebalance runs."
+            "Choose a portfolio to review previous rebalance activity."
         )
         selected_portfolio = st.selectbox(
             "Portfolio",
             options=portfolio_ids,
         )
 
+    reset_page_on_selection_change(
+        selection_key="history_selected_portfolio",
+        selected_value=selected_portfolio,
+        page_keys=(
+            "history_page",
+            "trade_page",
+            "audit_page",
+        ),
+    )
+
+    history_page = current_page_index("history_page")
+
     try:
         rebalance_page = client.list_portfolio_rebalances(
             portfolio_id=selected_portfolio,
-            limit=20,
-            offset=0,
+            limit=DEFAULT_PAGE_LIMIT,
+            offset=page_offset(page_index=history_page),
         )
     except ApiClientError as exc:
         st.error(f"Could not load rebalance history: {exc}")
@@ -303,6 +331,15 @@ def main() -> None:
             options=run_ids,
         )
 
+    reset_page_on_selection_change(
+        selection_key="history_selected_run",
+        selected_value=selected_run,
+        page_keys=(
+            "trade_page",
+            "audit_page",
+        ),
+    )
+
     try:
         summary = client.get_rebalance(selected_run)
     except ApiClientError as exc:
@@ -312,10 +349,11 @@ def main() -> None:
     _render_run_summary(summary)
 
     try:
+        trade_page_index = current_page_index("trade_page")
         trade_page = client.list_rebalance_trades(
             run_id=selected_run,
-            limit=20,
-            offset=0,
+            limit=DEFAULT_PAGE_LIMIT,
+            offset=page_offset(page_index=trade_page_index),
         )
     except ApiClientError as exc:
         st.warning(f"Could not load trades: {exc}")
@@ -323,10 +361,11 @@ def main() -> None:
         _render_trades(trade_page)
 
     try:
+        audit_page_index = current_page_index("audit_page")
         audit_page = client.list_rebalance_audit(
             run_id=selected_run,
-            limit=20,
-            offset=0,
+            limit=DEFAULT_PAGE_LIMIT,
+            offset=page_offset(page_index=audit_page_index),
         )
     except ApiClientError as exc:
         st.warning(f"Could not load audit records: {exc}")
