@@ -568,6 +568,8 @@ class PortfolioHoldingResponse(BaseModel):
 
     asset: str
     current_weight: float
+    target_weight: float
+    drift: float
     current_value: float
     cost_basis: float
 
@@ -582,6 +584,7 @@ class PortfolioDetailResponse(BaseModel):
 
     portfolio_id: str
     client_id: str
+    risk_category: str
     portfolio_value: float
     currency: str
     holdings: list[PortfolioHoldingResponse]

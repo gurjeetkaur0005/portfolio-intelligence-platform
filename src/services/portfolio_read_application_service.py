@@ -5,12 +5,17 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Protocol
 
+from src.monitoring.drift_calculator import calculate_drift
 from src.database.models import (
     AuditRecordModel,
     PortfolioModel,
     RebalanceRunModel,
     TradeModel,
 )
+from src.services.portfolio_input_adapter import PortfolioInputAdapter
+
+
+WEIGHT_QUANTUM = Decimal("0.0000000001")
 
 
 class PortfolioReadRepositoryProtocol(Protocol):
@@ -90,6 +95,8 @@ class PortfolioHolding:
 
     asset: str
     current_weight: Decimal
+    target_weight: Decimal
+    drift: Decimal
     current_value: Decimal
     cost_basis: Decimal
 
@@ -100,6 +107,7 @@ class PortfolioDetail:
 
     portfolio_id: str
     client_id: str
+    risk_category: str
     portfolio_value: Decimal
     currency: str
     holdings: tuple[PortfolioHolding, ...]
@@ -369,10 +377,24 @@ def _portfolio_detail(
 ) -> PortfolioDetail:
     """Build a portfolio detail DTO."""
 
+    deterministic_input = PortfolioInputAdapter().build_input(
+        portfolio
+    )
+    drifted_portfolio = calculate_drift(
+        deterministic_input.portfolios
+    )
+    drift_row = drifted_portfolio.iloc[0]
+
     holdings = tuple(
         PortfolioHolding(
             asset=holding.asset,
             current_weight=holding.current_weight,
+            target_weight=_decimal_from_row(
+                drift_row[f"target_{holding.asset}"]
+            ),
+            drift=_decimal_from_row(
+                drift_row[f"drift_{holding.asset}"]
+            ),
             current_value=holding.current_value,
             cost_basis=holding.cost_basis,
         )
@@ -382,6 +404,7 @@ def _portfolio_detail(
     return PortfolioDetail(
         portfolio_id=portfolio.portfolio_id,
         client_id=portfolio.client.client_id,
+        risk_category=portfolio.client.risk_category,
         portfolio_value=portfolio.portfolio_value,
         currency=portfolio.currency,
         holdings=holdings,
@@ -578,6 +601,14 @@ def _pending_approval_count(
             == "pending"
         )
     )
+
+
+def _decimal_from_row(
+    value: object,
+) -> Decimal:
+    """Convert a deterministic numeric row value into Decimal."""
+
+    return Decimal(str(value)).quantize(WEIGHT_QUANTUM)
 
 
 def _required_database_id(

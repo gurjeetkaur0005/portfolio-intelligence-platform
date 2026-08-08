@@ -5,6 +5,7 @@ from typing import Any
 import pandas as pd
 
 from streamlit_app.components.charts import _format_asset_label
+from streamlit_app.components.status import drift_label
 
 
 def prepare_holdings_table_data(
@@ -17,6 +18,8 @@ def prepare_holdings_table_data(
     preferred_columns = [
         "asset",
         "current_weight",
+        "target_weight",
+        "drift",
         "current_value",
         "cost_basis",
     ]
@@ -41,6 +44,15 @@ def prepare_holdings_table_data(
             result["current_weight"],
             errors="coerce",
         ) * 100
+
+    if "target_weight" in result.columns:
+        result["target_weight"] = pd.to_numeric(
+            result["target_weight"],
+            errors="coerce",
+        ) * 100
+
+    if "drift" in result.columns:
+        result["drift"] = result["drift"].map(drift_label)
 
     for column in (
         "current_value",
@@ -344,6 +356,13 @@ def render_holdings_table(
             "current_weight": st.column_config.NumberColumn(
                 "Current Weight",
                 format="%.2f%%",
+            ),
+            "target_weight": st.column_config.NumberColumn(
+                "Target Weight",
+                format="%.2f%%",
+            ),
+            "drift": st.column_config.TextColumn(
+                "Drift",
             ),
             "current_value": st.column_config.NumberColumn(
                 "Current Value",

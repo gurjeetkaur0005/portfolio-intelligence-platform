@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from decimal import Decimal, InvalidOperation
 
 POSITIVE_STATES = {
     "approved",
     "buy",
     "healthy",
-    "hold",
     "ok",
     "ready",
     "success",
@@ -14,12 +14,15 @@ POSITIVE_STATES = {
 WARNING_STATES = {
     "not_configured",
     "pending",
-    "sell",
 }
 NEGATIVE_STATES = {
     "failed",
     "rejected",
+    "sell",
     "unhealthy",
+}
+NEUTRAL_STATES = {
+    "hold",
 }
 
 
@@ -40,7 +43,7 @@ def status_tone(status: str | None) -> str:
     if status is None:
         return "neutral"
 
-    normalized_status = status.strip().lower()
+    normalized_status = status.strip().lower().replace(" ", "_")
 
     if normalized_status in POSITIVE_STATES:
         return "positive"
@@ -50,6 +53,9 @@ def status_tone(status: str | None) -> str:
 
     if normalized_status in NEGATIVE_STATES:
         return "negative"
+
+    if normalized_status in NEUTRAL_STATES:
+        return "neutral"
 
     return "neutral"
 
@@ -125,3 +131,98 @@ def render_status_badge(
         ),
         unsafe_allow_html=True,
     )
+
+
+def drift_label(
+    value: object,
+) -> str:
+    """Return a signed percentage label for a backend drift value."""
+
+    decimal_value = _decimal_value(value)
+
+    if decimal_value is None:
+        return "Not available"
+
+    if decimal_value == 0:
+        return "0.00%"
+
+    return f"{decimal_value * 100:+.2f}%"
+
+
+def drift_status_label(
+    value: object,
+) -> str:
+    """Return a sign-only drift status label."""
+
+    decimal_value = _decimal_value(value)
+
+    if decimal_value is None:
+        return "Unavailable"
+
+    if decimal_value > 0:
+        return "Positive Drift"
+
+    if decimal_value < 0:
+        return "Negative Drift"
+
+    return "Near Target"
+
+
+def drift_status_tone(
+    value: object,
+) -> str:
+    """Return a sign-only tone for a backend drift value."""
+
+    decimal_value = _decimal_value(value)
+
+    if decimal_value is None:
+        return "neutral"
+
+    if decimal_value > 0:
+        return "positive"
+
+    if decimal_value < 0:
+        return "negative"
+
+    return "neutral"
+
+
+def render_drift_badge(
+    *,
+    asset: str,
+    drift: object,
+) -> None:
+    """Render a presentation-only drift badge."""
+
+    import streamlit as st
+
+    tone = drift_status_tone(drift)
+    label = drift_status_label(drift)
+    value = drift_label(drift)
+
+    st.markdown(
+        (
+            "<div class='pm-key-value'>"
+            f"<span>{asset}</span>"
+            f"<strong>"
+            f"<span class='pm-status-badge pm-status-{tone}'>"
+            f"{label} {value}</span>"
+            f"</strong>"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def _decimal_value(
+    value: object,
+) -> Decimal | None:
+    """Return a Decimal for valid numeric drift display values."""
+
+    if value is None or isinstance(value, bool):
+        return None
+
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
