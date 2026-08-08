@@ -26,6 +26,14 @@ SEED_PORTFOLIO_ID_PREFIX = "DEV-P"
 DEFAULT_CURRENCY = "USD"
 MONEY_QUANTUM = Decimal("0.01")
 WEIGHT_QUANTUM = Decimal("0.0000000001")
+COST_BASIS_MULTIPLIERS = {
+    "domestic_equity": Decimal("0.86"),
+    "international_equity": Decimal("1.08"),
+    "fixed_income": Decimal("0.95"),
+    "real_estate": Decimal("1.12"),
+    "commodities": Decimal("0.88"),
+    "cash": Decimal("1.00"),
+}
 
 logger = get_logger(__name__)
 
@@ -305,23 +313,48 @@ def _build_holdings(
     """Build six holding models from generated portfolio weights."""
 
     weights = _holding_weights(portfolio_row)
+    holdings: list[PortfolioHoldingModel] = []
 
-    return [
-        PortfolioHoldingModel(
-            asset=asset,
-            current_weight=weight,
-            current_value=_money_value(
-                portfolio_value * weight
-            ),
-            cost_basis=_money_value(
-                portfolio_value * weight
+    for asset, weight in zip(
+        ASSET_CLASSES,
+        weights,
+    ):
+        current_value = _money_value(
+            portfolio_value * weight
+        )
+        holdings.append(
+            PortfolioHoldingModel(
+                asset=asset,
+                current_weight=weight,
+                current_value=current_value,
+                cost_basis=_cost_basis_value(
+                    asset=asset,
+                    current_value=current_value,
+                ),
             ),
         )
-        for asset, weight in zip(
-            ASSET_CLASSES,
-            weights,
-        )
-    ]
+
+    return holdings
+
+
+def _cost_basis_value(
+    *,
+    asset: str,
+    current_value: Decimal,
+) -> Decimal:
+    """
+    Return deterministic development cost basis for one holding.
+
+    Cost basis represents historical invested amount. Development seed data
+    uses bounded per-asset multipliers so tax-aware workflows include both
+    unrealized gains and losses without changing current allocations.
+    Cash keeps cost basis equal to current value because this simplified
+    model does not treat cash as having unrealized capital gain.
+    """
+
+    multiplier = COST_BASIS_MULTIPLIERS[asset]
+
+    return _money_value(current_value * multiplier)
 
 
 def _holding_weights(

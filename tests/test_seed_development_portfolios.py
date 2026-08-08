@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
+import pandas as pd
 import pytest
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import selectinload
@@ -35,6 +36,7 @@ from src.services.rebalance_application_service import (
 from src.database.persistence_service import (
     RebalancePersistenceService,
 )
+from src.optimization.tax_aware_optimizer import estimate_trade_taxes
 
 
 @pytest.fixture
@@ -122,6 +124,134 @@ def test_seeded_holding_weights_sum_to_one(
             Decimal("0"),
         )
         assert total_weight == Decimal("1.0000000000")
+
+
+def test_seeded_cost_basis_is_realistic_for_non_cash(
+    session_factory: DatabaseSessionFactory,
+) -> None:
+    seed_script.seed_development_portfolios(session_factory)
+
+    portfolios = _load_portfolios(session_factory)
+    non_cash_holdings = [
+        holding
+        for portfolio in portfolios
+        for holding in portfolio.holdings
+        if holding.asset != "cash"
+    ]
+
+    assert any(
+        holding.current_value != holding.cost_basis
+        for holding in non_cash_holdings
+    )
+    assert any(
+        holding.current_value > holding.cost_basis
+        for holding in non_cash_holdings
+    )
+    assert any(
+        holding.current_value < holding.cost_basis
+        for holding in non_cash_holdings
+    )
+    assert all(
+        holding.cost_basis >= Decimal("0.00")
+        for holding in non_cash_holdings
+    )
+
+
+def test_seeded_cash_cost_basis_matches_current_value(
+    session_factory: DatabaseSessionFactory,
+) -> None:
+    seed_script.seed_development_portfolios(session_factory)
+
+    portfolios = _load_portfolios(session_factory)
+    cash_holdings = [
+        holding
+        for portfolio in portfolios
+        for holding in portfolio.holdings
+        if holding.asset == "cash"
+    ]
+
+    assert cash_holdings
+    assert all(
+        holding.cost_basis == holding.current_value
+        for holding in cash_holdings
+    )
+
+
+def test_seeded_current_values_remain_allocation_driven(
+    session_factory: DatabaseSessionFactory,
+) -> None:
+    seed_script.seed_development_portfolios(session_factory)
+
+    portfolios = _load_portfolios(session_factory)
+
+    for portfolio in portfolios:
+        for holding in portfolio.holdings:
+            expected_current_value = (
+                portfolio.portfolio_value
+                * holding.current_weight
+            ).quantize(
+                seed_script.MONEY_QUANTUM,
+                rounding=ROUND_HALF_UP,
+            )
+
+            assert holding.current_value == expected_current_value
+
+
+def test_seeded_cost_basis_is_deterministic(
+    session_factory: DatabaseSessionFactory,
+) -> None:
+    seed_script.seed_development_portfolios(session_factory)
+    first_snapshot = _holding_snapshot(session_factory)
+
+    result = seed_script.seed_development_portfolios(
+        session_factory
+    )
+    second_snapshot = _holding_snapshot(session_factory)
+
+    assert result.skipped == 10
+    assert second_snapshot == first_snapshot
+
+
+def test_seeded_profitable_sell_can_create_tax(
+    session_factory: DatabaseSessionFactory,
+) -> None:
+    seed_script.seed_development_portfolios(session_factory)
+    profitable_holding = _first_holding_with_gain(
+        session_factory
+    )
+
+    result = estimate_trade_taxes(
+        pd.DataFrame(
+            [
+                _tax_trade_row(
+                    holding=profitable_holding,
+                    trade_fraction=Decimal("-0.10"),
+                )
+            ]
+        )
+    )
+
+    assert result.loc[0, "estimated_tax_liability"] > 0
+
+
+def test_seeded_loss_sell_does_not_create_positive_tax(
+    session_factory: DatabaseSessionFactory,
+) -> None:
+    seed_script.seed_development_portfolios(session_factory)
+    loss_holding = _first_holding_with_loss(session_factory)
+
+    result = estimate_trade_taxes(
+        pd.DataFrame(
+            [
+                _tax_trade_row(
+                    holding=loss_holding,
+                    trade_fraction=Decimal("-0.10"),
+                )
+            ]
+        )
+    )
+
+    assert result.loc[0, "estimated_tax_liability"] == 0
 
 
 def test_running_seed_twice_creates_no_duplicates(
@@ -351,6 +481,76 @@ def _load_portfolios(
                 .order_by(PortfolioModel.portfolio_id)
             ).all()
         )
+
+
+def _holding_snapshot(
+    session_factory: DatabaseSessionFactory,
+) -> list[tuple[str, str, Decimal, Decimal, Decimal]]:
+    """Return stable holding values for determinism assertions."""
+
+    return [
+        (
+            portfolio.portfolio_id,
+            holding.asset,
+            holding.current_weight,
+            holding.current_value,
+            holding.cost_basis,
+        )
+        for portfolio in _load_portfolios(session_factory)
+        for holding in sorted(
+            portfolio.holdings,
+            key=lambda item: item.asset,
+        )
+    ]
+
+
+def _first_holding_with_gain(
+    session_factory: DatabaseSessionFactory,
+) -> PortfolioHoldingModel:
+    """Return the first seeded holding with unrealized gain."""
+
+    for portfolio in _load_portfolios(session_factory):
+        for holding in portfolio.holdings:
+            if (
+                holding.current_value > holding.cost_basis
+                and holding.current_value > Decimal("0.00")
+            ):
+                return holding
+
+    raise AssertionError("Expected at least one seeded gain holding.")
+
+
+def _first_holding_with_loss(
+    session_factory: DatabaseSessionFactory,
+) -> PortfolioHoldingModel:
+    """Return the first seeded holding with unrealized loss."""
+
+    for portfolio in _load_portfolios(session_factory):
+        for holding in portfolio.holdings:
+            if (
+                holding.current_value < holding.cost_basis
+                and holding.current_value > Decimal("0.00")
+            ):
+                return holding
+
+    raise AssertionError("Expected at least one seeded loss holding.")
+
+
+def _tax_trade_row(
+    *,
+    holding: PortfolioHoldingModel,
+    trade_fraction: Decimal,
+) -> dict[str, object]:
+    """Return one trade row for tax-estimation assertions."""
+
+    return {
+        "portfolio_id": "DEV-P-TAX-TEST",
+        "asset": holding.asset,
+        "trade_value": float(holding.current_value * trade_fraction),
+        "current_value": float(holding.current_value),
+        "cost_basis": float(holding.cost_basis),
+        "tax_rate": 0.20,
+    }
 
 
 def _insert_stale_development_portfolio(
