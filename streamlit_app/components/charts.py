@@ -6,11 +6,43 @@ import pandas as pd
 
 
 CHART_FONT = "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
-GRID_COLOR = "rgba(31, 41, 55, 0.10)"
-TEXT_COLOR = "#1f2937"
-MUTED_COLOR = "#667085"
-ACCENT_COLOR = "#1f7a8c"
-SECONDARY_COLOR = "#64748b"
+GRID_COLOR = "rgba(148, 163, 184, 0.18)"
+TEXT_COLOR = "#f8fafc"
+MUTED_COLOR = "#cbd5e1"
+ACCENT_COLOR = "#3b82f6"
+SECONDARY_COLOR = "#94a3b8"
+POSITIVE_COLOR = "#22c55e"
+NEGATIVE_COLOR = "#ef4444"
+WARNING_COLOR = "#f59e0b"
+CHART_PALETTE = [
+    "#3b82f6",
+    "#22c55e",
+    "#f59e0b",
+    "#a78bfa",
+    "#14b8a6",
+    "#f97316",
+]
+
+__all__ = [
+    "prepare_allocation_data",
+    "prepare_backtest_drawdown_data",
+    "prepare_backtest_portfolio_history_data",
+    "prepare_current_vs_target_allocation_data",
+    "prepare_holding_value_data",
+    "prepare_portfolio_value_data",
+    "prepare_rebalance_allocation_comparison_data",
+    "prepare_strategy_comparison_chart_data",
+    "prepare_target_allocation_data",
+    "render_allocation_donut_chart",
+    "render_backtest_drawdown_history",
+    "render_backtest_portfolio_history",
+    "render_current_vs_target_allocation",
+    "render_holding_value_bar_chart",
+    "render_portfolio_value_distribution",
+    "render_rebalance_allocation_comparison",
+    "render_strategy_comparison",
+    "render_target_allocation_donut_chart",
+]
 
 
 class ChartFigure(Protocol):
@@ -70,6 +102,14 @@ def _apply_chart_layout(
         },
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
+        hoverlabel={
+            "bgcolor": "#1b2638",
+            "bordercolor": "#2a374a",
+            "font": {
+                "color": TEXT_COLOR,
+                "family": CHART_FONT,
+            },
+        },
         margin={
             "l": 8,
             "r": 8,
@@ -83,6 +123,9 @@ def _apply_chart_layout(
             "y": -0.22,
             "xanchor": "left",
             "x": 0,
+            "font": {
+                "color": MUTED_COLOR,
+            },
         },
         xaxis_title=x_title,
         yaxis_title=y_title,
@@ -178,6 +221,114 @@ def prepare_allocation_data(
     result["allocation_percent"] = result["current_weight"] * 100
 
     return result
+
+
+def prepare_target_allocation_data(
+    holdings: list[dict[str, object]],
+) -> pd.DataFrame:
+    """Return cleaned target allocation rows for chart rendering."""
+
+    dataframe = pd.DataFrame(holdings)
+
+    if not {
+        "asset",
+        "target_weight",
+    }.issubset(dataframe.columns):
+        return pd.DataFrame()
+
+    result = dataframe[
+        [
+            "asset",
+            "target_weight",
+        ]
+    ].copy()
+    result["asset_label"] = result["asset"].astype(str).map(
+        _format_asset_label
+    )
+    result["target_weight"] = pd.to_numeric(
+        result["target_weight"],
+        errors="coerce",
+    )
+    result = result.dropna(
+        subset=[
+            "target_weight",
+        ]
+    )
+    result["allocation_percent"] = result["target_weight"] * 100
+
+    return result
+
+
+def prepare_current_vs_target_allocation_data(
+    holdings: list[dict[str, object]],
+) -> pd.DataFrame:
+    """Return current and target allocation rows for charting."""
+
+    dataframe = pd.DataFrame(holdings)
+
+    if not {
+        "asset",
+        "current_weight",
+        "target_weight",
+    }.issubset(dataframe.columns):
+        return pd.DataFrame()
+
+    result = dataframe[
+        [
+            "asset",
+            "current_weight",
+            "target_weight",
+        ]
+    ].copy()
+    result["asset_label"] = result["asset"].astype(str).map(
+        _format_asset_label
+    )
+
+    for column in (
+        "current_weight",
+        "target_weight",
+    ):
+        result[column] = pd.to_numeric(
+            result[column],
+            errors="coerce",
+        )
+
+    result = result.dropna(
+        subset=[
+            "current_weight",
+            "target_weight",
+        ]
+    )
+
+    if result.empty:
+        return pd.DataFrame()
+
+    comparison = result.melt(
+        id_vars=[
+            "asset_label",
+        ],
+        value_vars=[
+            "current_weight",
+            "target_weight",
+        ],
+        var_name="allocation_type",
+        value_name="weight_percent",
+    )
+    comparison["weight_percent"] = comparison["weight_percent"] * 100
+    comparison["allocation_type"] = comparison["allocation_type"].map(
+        {
+            "current_weight": "Current Weight",
+            "target_weight": "Target Weight",
+        }
+    )
+
+    return comparison.sort_values(
+        [
+            "asset_label",
+            "allocation_type",
+        ],
+        ascending=True,
+    )
 
 
 def prepare_portfolio_value_data(
@@ -638,7 +789,7 @@ def render_backtest_drawdown_history(
         x="period_label",
         y="drawdown_percent",
         color_discrete_sequence=[
-            "#b42318",
+            NEGATIVE_COLOR,
         ],
     )
     figure.update_traces(
@@ -778,7 +929,7 @@ def render_allocation_donut_chart(
         names="asset_label",
         values="allocation_percent",
         hole=0.62,
-        color_discrete_sequence=px.colors.qualitative.Set2,
+        color_discrete_sequence=CHART_PALETTE,
     )
     figure.update_traces(
         textposition="outside",
@@ -800,6 +951,103 @@ def render_allocation_donut_chart(
             "t": 56,
             "b": 48,
         },
+    )
+
+    st.plotly_chart(
+        figure,
+        width="stretch",
+    )
+
+
+def render_target_allocation_donut_chart(
+    holdings: list[dict[str, object]],
+) -> None:
+    """Render target portfolio allocation as a donut chart."""
+
+    import streamlit as st
+    import plotly.express as px
+
+    dataframe = prepare_target_allocation_data(holdings)
+
+    if dataframe.empty:
+        st.info("Target allocation data is unavailable.")
+        return
+
+    figure = px.pie(
+        dataframe,
+        names="asset_label",
+        values="allocation_percent",
+        hole=0.62,
+        color_discrete_sequence=CHART_PALETTE,
+    )
+    figure.update_traces(
+        textposition="outside",
+        textinfo="none",
+        hovertemplate=(
+            "%{label}<br>"
+            "Target %{percent:.2%}<extra></extra>"
+        ),
+    )
+    _apply_chart_layout(
+        figure,
+        title="Target Allocation",
+    )
+    figure.update_layout(
+        showlegend=True,
+        margin={
+            "l": 8,
+            "r": 8,
+            "t": 56,
+            "b": 48,
+        },
+    )
+
+    st.plotly_chart(
+        figure,
+        width="stretch",
+    )
+
+
+def render_current_vs_target_allocation(
+    holdings: list[dict[str, object]],
+) -> None:
+    """Render current vs target allocation from API holdings."""
+
+    import streamlit as st
+    import plotly.express as px
+
+    dataframe = prepare_current_vs_target_allocation_data(holdings)
+
+    if dataframe.empty:
+        st.info("Current and target allocation data is unavailable.")
+        return
+
+    figure = px.bar(
+        dataframe,
+        x="weight_percent",
+        y="asset_label",
+        color="allocation_type",
+        barmode="group",
+        orientation="h",
+        color_discrete_map={
+            "Current Weight": SECONDARY_COLOR,
+            "Target Weight": ACCENT_COLOR,
+        },
+    )
+    figure.update_traces(
+        hovertemplate=(
+            "%{y}<br>"
+            "%{legendgroup}: %{x:.2f}%<extra></extra>"
+        )
+    )
+    _apply_chart_layout(
+        figure,
+        title="Current vs Target Allocation",
+        x_title="Weight",
+        y_title=None,
+    )
+    figure.update_xaxes(
+        ticksuffix="%",
     )
 
     st.plotly_chart(
